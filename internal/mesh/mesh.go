@@ -448,6 +448,22 @@ func Client(cfg Config, expectedID string) (*http.Client, error) {
 	return &http.Client{Timeout: 5 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsConfig, DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext, DisableKeepAlives: true}}, nil
 }
 
+// RelayClient builds the long-lived mTLS client for the browser-facing relay:
+// no request timeout, keep-alives enabled, so CGI responses and WebSocket
+// upgrades survive as long as the browser keeps them open.
+func RelayClient(cfg Config, expectedID string) (*http.Client, error) {
+	tlsConfig, err := peerTLS(cfg, expectedID)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Transport: &http.Transport{
+		TLSClientConfig:     tlsConfig,
+		DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
+		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConnsPerHost: 4,
+	}}, nil
+}
+
 type joinRequest struct {
 	Token   string `json:"token"`
 	NodeID  string `json:"nodeId"`

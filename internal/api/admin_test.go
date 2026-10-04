@@ -12,6 +12,7 @@ import (
 	"fncluster/internal/admin"
 	"fncluster/internal/cluster"
 	"fncluster/internal/mesh"
+	"fncluster/internal/relay"
 )
 
 func testHandler(t *testing.T) (http.Handler, *admin.Admin) {
@@ -22,7 +23,7 @@ func testHandler(t *testing.T) (http.Handler, *admin.Admin) {
 	if err := os.WriteFile(adminOps.Entry, []byte("<html></html>"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	return New(state, adminOps, mesh.NewRuntime(dir, "127.0.0.1:0", state, time.Hour)), adminOps
+	return New(state, adminOps, mesh.NewRuntime(dir, "127.0.0.1:0", state, time.Hour), nil), adminOps
 }
 
 func TestMutationRequiresGuardHeader(t *testing.T) {
@@ -147,6 +148,41 @@ func TestPanelsReportMapsLocalizedEntries(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("unguarded report returned %d", response.Code)
+	}
+}
+
+func TestRelayTokensOnlyForRelayablePanels(t *testing.T) {
+	dir := t.TempDir()
+	state := cluster.New(cluster.Node{ID: "local-node", Online: true})
+	state.UpsertRemote(cluster.Node{ID: "remote-node", Online: true, Panels: []cluster.PanelEntry{
+		{ID: "entry:1", NodeID: "remote-node", AppName: "tailscale", Relayable: true},
+		{ID: "entry:2", NodeID: "remote-node", AppName: "other"},
+	}})
+	adminOps := &admin.Admin{DataDir: dir, Entry: filepath.Join(dir, "index.html"), RelayBase: "http://192.168.1.28:38672"}
+	relayServer := &relay.Server{TTL: time.Hour, Sessions: relay.NewSessions(time.Hour)}
+	handler := New(state, adminOps, mesh.NewRuntime(dir, "127.0.0.1:0", state, time.Hour), relayServer)
+
+	body := `{"targets":[{"nodeId":"remote-node","appName":"tailscale"},{"nodeId":"remote-node","appName":"other"},{"nodeId":"missing","appName":"x"}]}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/relay/tokens", strings.NewReader(body))
+	request.Header.Set("X-FnCluster", "1")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("relay tokens returned %d: %s", response.Code, response.Body.String())
+	}
+	out := response.Body.String()
+	if !strings.Contains(out, `"appName":"tailscale"`) || !strings.Contains(out, "/open/") {
+		t.Fatalf("relayable target was not minted: %s", out)
+	}
+	if strings.Contains(out, `"appName":"other"`) || strings.Contains(out, "missing") {
+		t.Fatalf("non-relayable target was minted: %s", out)
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/relay/tokens", strings.NewReader(body))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("unguarded relay token request returned %d", response.Code)
 	}
 }
 

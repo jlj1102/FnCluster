@@ -24,6 +24,15 @@ type Runtime struct {
 
 	mu      sync.Mutex
 	current *running
+	relay   http.Handler
+}
+
+// SetRelay installs the /relay/ handler on the mTLS listener. It is only
+// reachable by verified cluster members.
+func (r *Runtime) SetRelay(handler http.Handler) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.relay = handler
 }
 
 type running struct {
@@ -102,12 +111,27 @@ func (r *Runtime) start(parent context.Context, store *Store, cfg Config) error 
 		return err
 	}
 	ctx, cancel := context.WithCancel(parent)
+	r.mu.Lock()
+	relayHandler := r.relay
+	r.mu.Unlock()
+	handler := store.Handler(r.state.Local)
+	if relayHandler != nil {
+		outer := http.NewServeMux()
+		outer.Handle("/relay/", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if !store.authorized(req) {
+				http.Error(w, "mTLS member required", http.StatusForbidden)
+				return
+			}
+			relayHandler.ServeHTTP(w, req)
+		}))
+		outer.Handle("/", handler)
+		handler = outer
+	}
+	// No read/write deadlines: relay responses (CGI, WebSocket) may stay open.
 	server := &http.Server{
-		Handler:           store.Handler(r.state.Local),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       30 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
 	go func() {
 		if err := server.Serve(tls.NewListener(listener, tlsConfig)); err != nil && !errors.Is(err, http.ErrServerClosed) {

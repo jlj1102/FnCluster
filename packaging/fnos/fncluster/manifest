@@ -1,5 +1,5 @@
 appname               = fncluster
-version               = 0.2.5
+version               = 0.2.6
 display_name          = FnCluster
 desc                  = Multi-node fnOS status and management foundation. Each node keeps independent storage.
 platform              = x86

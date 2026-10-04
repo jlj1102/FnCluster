@@ -35,6 +35,11 @@ type Admin struct {
 	LogFile    string
 	State      *cluster.State
 
+	// RelayBase is the browser-facing relay origin (empty disables relay);
+	// Relayable reports whether this node can serve an app through the relay.
+	RelayBase string
+	Relayable func(string) bool
+
 	mu sync.Mutex
 }
 
@@ -247,6 +252,20 @@ func (a *Admin) Addresses() []Address {
 		result[0].Recommended = true
 	}
 	return result
+}
+
+// RelayBaseURL picks the recommended LAN address for the relay origin.
+func (a *Admin) RelayBaseURL(port string) string {
+	addresses := a.Addresses()
+	for _, address := range addresses {
+		if address.Recommended {
+			return "http://" + net.JoinHostPort(address.IP, port)
+		}
+	}
+	if len(addresses) > 0 {
+		return "http://" + net.JoinHostPort(addresses[0].IP, port)
+	}
+	return ""
 }
 
 func hasRecommended(addresses []Address) bool {

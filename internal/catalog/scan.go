@@ -3,13 +3,46 @@ package catalog
 import (
 	"bufio"
 	"encoding/json"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"fncluster/internal/cluster"
 )
+
+type uiURL struct {
+	Title         string `json:"title"`
+	Icon          string `json:"icon"`
+	URL           string `json:"url"`
+	NoDisplay     bool   `json:"noDisplay"`
+	GatewaySocket string `json:"gatewaySocket"`
+}
+
+// relayTargetFor recognizes the two local service shapes the cluster relay can
+// reach without the fnOS gateway: a unix socket (`gatewaySocket`) or an app CGI
+// binary (`/cgi/ThirdParty/<app>/index.cgi` style). The path is resolved
+// locally and never leaves the node.
+func relayTargetFor(base, entryURL string, item uiURL) (cluster.RelayTarget, bool) {
+	if item.GatewaySocket != "" {
+		return cluster.RelayTarget{
+			Kind:   "socket",
+			Socket: filepath.Join(base, "target", filepath.Base(item.GatewaySocket)),
+			Prefix: strings.TrimSuffix(entryURL, "/"),
+		}, true
+	}
+	parsed, err := url.Parse(entryURL)
+	if err != nil || !strings.HasSuffix(parsed.Path, ".cgi") {
+		return cluster.RelayTarget{}, false
+	}
+	cgiPath := filepath.Join(base, "target", "ui", filepath.Base(parsed.Path))
+	if info, statErr := os.Stat(cgiPath); statErr != nil || !info.Mode().IsRegular() {
+		return cluster.RelayTarget{}, false
+	}
+	return cluster.RelayTarget{Kind: "cgi", CGIPath: cgiPath, Prefix: path.Dir(parsed.Path)}, true
+}
 
 // localeRoot is a test seam; fnOS ships its UI translations under this tree.
 var localeRoot = "/usr/trim/www/locales"
@@ -45,12 +78,14 @@ func systemTitles() map[string]string {
 }
 
 // Scan reads FPK metadata only; it does not call private fnOS APIs or launch apps.
-func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, error) {
+// The returned map is the local relay target table (appName -> local service).
+func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, map[string]cluster.RelayTarget, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var panels []cluster.PanelEntry
+	targets := map[string]cluster.RelayTarget{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -78,12 +113,7 @@ func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, error) {
 			continue
 		}
 		var ui struct {
-			URLs map[string]struct {
-				Title     string `json:"title"`
-				Icon      string `json:"icon"`
-				URL       string `json:"url"`
-				NoDisplay bool   `json:"noDisplay"`
-			} `json:".url"`
+			URLs map[string]uiURL `json:".url"`
 		}
 		if json.Unmarshal(data, &ui) != nil {
 			continue
@@ -92,11 +122,15 @@ func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, error) {
 			if item.NoDisplay || item.Title == "" {
 				continue
 			}
-			panel := cluster.PanelEntry{ID: id, NodeID: nodeID, Kind: "application", Title: item.Title, Icon: item.Icon}
+			panel := cluster.PanelEntry{ID: id, NodeID: nodeID, Kind: "application", Title: item.Title, Icon: item.Icon, AppName: appName}
 			if strings.HasPrefix(item.URL, "/") && !strings.HasPrefix(item.URL, "//") {
 				panel.DirectURL = item.URL
 			} else if strings.HasPrefix(item.URL, "https://") {
 				panel.ExternalURL = item.URL
+			}
+			if target, ok := relayTargetFor(base, item.URL, item); ok {
+				panel.Relayable = true
+				targets[appName] = target
 			}
 			panels = append(panels, panel)
 		}
@@ -121,5 +155,5 @@ func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, error) {
 		}
 		return panels[i].ID < panels[j].ID
 	})
-	return panels, nil
+	return panels, targets, nil
 }

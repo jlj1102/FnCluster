@@ -116,7 +116,10 @@ func (s *server) handlePanelsReport(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		seen[id] = true
-		panel := cluster.PanelEntry{ID: id, NodeID: nodeID, Title: title, Icon: entry.Icon, Native: entry.NativeApp}
+		panel := cluster.PanelEntry{ID: id, NodeID: nodeID, Title: title, Icon: entry.Icon, Native: entry.NativeApp, AppName: strings.TrimSpace(entry.AppName)}
+		if panel.AppName != "" && s.admin != nil && s.admin.Relayable != nil {
+			panel.Relayable = s.admin.Relayable(panel.AppName)
+		}
 		switch {
 		case entry.NativeApp || strings.HasPrefix(entry.AppName, "trim"):
 			panel.Kind = "system"
@@ -231,6 +234,58 @@ func (s *server) handleMeshResetIdentity(w http.ResponseWriter, r *http.Request)
 	}
 	s.admin.Audit("mesh.reset-identity", "", "ok")
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// handleRelayTokens mints browser-facing relay sessions for remote panels.
+// Targets are limited to relayable panels that a cluster member reported, and
+// the request never carries a host or port.
+func (s *server) handleRelayTokens(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Targets []struct {
+			NodeID  string `json:"nodeId"`
+			AppName string `json:"appName"`
+		} `json:"targets"`
+	}
+	if !mutationRequest(w, r, &body) {
+		return
+	}
+	if s.relay == nil || s.admin.RelayBase == "" {
+		writeError(w, http.StatusServiceUnavailable, "relay is not enabled")
+		return
+	}
+	if len(body.Targets) > 200 {
+		writeError(w, http.StatusBadRequest, "too many relay targets")
+		return
+	}
+	nodes := map[string]cluster.Node{}
+	for _, node := range s.state.Nodes() {
+		nodes[node.ID] = node
+	}
+	results := make([]map[string]string, 0, len(body.Targets))
+	for _, target := range body.Targets {
+		node, ok := nodes[target.NodeID]
+		if !ok || !node.Online || target.AppName == "" {
+			continue
+		}
+		relayable := false
+		for _, panel := range node.Panels {
+			if panel.AppName == target.AppName && panel.Relayable {
+				relayable = true
+				break
+			}
+		}
+		if !relayable {
+			continue
+		}
+		token := s.relay.Sessions.Mint(target.NodeID, target.AppName)
+		results = append(results, map[string]string{
+			"nodeId":  target.NodeID,
+			"appName": target.AppName,
+			"url":     s.admin.RelayBase + "/open/" + token,
+		})
+	}
+	s.admin.Audit("relay.token", fmt.Sprintf("targets=%d minted=%d", len(body.Targets), len(results)), "ok")
+	writeJSON(w, map[string]any{"targets": results})
 }
 
 func (s *server) handleWebUIApply(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,7 @@ import (
 	"fncluster/internal/admin"
 	"fncluster/internal/cluster"
 	"fncluster/internal/mesh"
+	"fncluster/internal/relay"
 )
 
 //go:embed web/*
@@ -21,10 +22,11 @@ type server struct {
 	state   *cluster.State
 	admin   *admin.Admin
 	runtime *mesh.Runtime
+	relay   *relay.Server
 }
 
-func New(state *cluster.State, adminOps *admin.Admin, runtime *mesh.Runtime) http.Handler {
-	s := &server{state: state, admin: adminOps, runtime: runtime}
+func New(state *cluster.State, adminOps *admin.Admin, runtime *mesh.Runtime, relayServer *relay.Server) http.Handler {
+	s := &server{state: state, admin: adminOps, runtime: runtime, relay: relayServer}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if getOnly(w, r) {
@@ -99,6 +101,7 @@ func New(state *cluster.State, adminOps *admin.Admin, runtime *mesh.Runtime) htt
 	mux.HandleFunc("/api/v1/webui/apply", s.handleWebUIApply)
 	mux.HandleFunc("/api/v1/webui/restore", s.handleWebUIRestore)
 	mux.HandleFunc("/api/v1/webui/enable", s.handleWebUIEnable)
+	mux.HandleFunc("/api/v1/relay/tokens", s.handleRelayTokens)
 	web, _ := fs.Sub(webFiles, "web")
 	mux.Handle("/", http.FileServer(http.FS(web)))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

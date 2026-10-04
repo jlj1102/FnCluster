@@ -27,6 +27,19 @@ type PanelEntry struct {
 	DirectURL   string `json:"directUrl,omitempty"`
 	ExternalURL string `json:"externalUrl,omitempty"`
 	Native      bool   `json:"native"`
+	// AppName is the fnOS application name (e.g. tailscale); AppName+Relayable
+	// let a remote browser request this panel through the cluster relay.
+	AppName   string `json:"appName,omitempty"`
+	Relayable bool   `json:"relayable,omitempty"`
+}
+
+// RelayTarget is resolved on the owning node only and never crosses the mesh:
+// a local unix socket or an app CGI binary the relay may proxy to.
+type RelayTarget struct {
+	Kind    string `json:"kind"` // "socket" or "cgi"
+	Socket  string `json:"socket,omitempty"`
+	CGIPath string `json:"cgiPath,omitempty"`
+	Prefix  string `json:"prefix,omitempty"`
 }
 
 type Rates struct {

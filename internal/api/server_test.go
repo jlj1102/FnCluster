@@ -17,7 +17,7 @@ func TestReadOnlyAPI(t *testing.T) {
 	state := cluster.New(cluster.Node{ID: "stable-id", Online: true})
 	state.UpdateLocal(cluster.Metrics{CollectedAt: time.Now()})
 	dir := t.TempDir()
-	handler := New(state, &admin.Admin{DataDir: dir, Entry: filepath.Join(dir, "index.html")}, mesh.NewRuntime(dir, "127.0.0.1:0", state, time.Hour))
+	handler := New(state, &admin.Admin{DataDir: dir, Entry: filepath.Join(dir, "index.html")}, mesh.NewRuntime(dir, "127.0.0.1:0", state, time.Hour), nil)
 	request := httptest.NewRequest(http.MethodGet, "/api/v1/nodes", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

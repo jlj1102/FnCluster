@@ -20,6 +20,7 @@ import (
 	"fncluster/internal/api"
 	"fncluster/internal/identity"
 	"fncluster/internal/mesh"
+	"fncluster/internal/relay"
 	"fncluster/internal/webpatch"
 )
 
@@ -73,6 +74,7 @@ func serve(args []string) error {
 	webuiEntry := flags.String("webui-entry", "/usr/trim/www/index.html", "fnOS WebUI entry patched by browser management")
 	webuiArchive := flags.String("webui-archive", "/usr/trim/share/.restore/www.zip", "fnOS www restore archive kept in sync with the patch")
 	logFile := flags.String("log-file", "", "service log file exposed read-only in the browser UI")
+	relayListen := flags.String("relay-listen", ":38672", "browser-facing remote app relay listener; empty disables it")
 	var mounts paths
 	flags.Var(&mounts, "storage-mount", "storage mount to include in aggregate statistics; repeatable")
 	if err := flags.Parse(args); err != nil {
@@ -148,9 +150,30 @@ func serve(args []string) error {
 		LogFile:    *logFile,
 		State:      agent.State,
 	}
+	adminOps.Relayable = agent.Relayable
+	var relayServer *relay.Server
+	if *relayListen != "" {
+		_, relayPort, relayErr := net.SplitHostPort(*relayListen)
+		if relayErr != nil {
+			return fmt.Errorf("invalid relay-listen address: %w", relayErr)
+		}
+		adminOps.RelayBase = adminOps.RelayBaseURL(relayPort)
+		if adminOps.RelayBase == "" {
+			log.Printf("relay disabled: no LAN address found")
+		} else {
+			relayServer = &relay.Server{DataDir: *dataDir, TTL: 12 * time.Hour, Sessions: relay.NewSessions(12 * time.Hour)}
+			meshRuntime.SetRelay(relay.RemoteHandler(agent.ResolveTarget))
+			go func() {
+				if relayErr := relayServer.Serve(ctx, *relayListen); relayErr != nil {
+					log.Printf("relay listener: %v", relayErr)
+				}
+			}()
+			log.Printf("FnCluster relay listening on %s (browser origin %s)", *relayListen, adminOps.RelayBase)
+		}
+	}
 	go reapplyWebUIAfterUpgrade(*dataDir, *webuiEntry, adminOps)
 	server := &http.Server{
-		Handler: api.New(agent.State, adminOps, meshRuntime), ReadHeaderTimeout: 5 * time.Second,
+		Handler: api.New(agent.State, adminOps, meshRuntime, relayServer), ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout: 30 * time.Second,
 	}
 	go func() {

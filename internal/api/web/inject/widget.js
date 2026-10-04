@@ -16,9 +16,11 @@
   const API_NODES = '/app/fncluster/api/v1/nodes';
   const API_MESH = '/app/fncluster/api/v1/mesh';
   const API_PANELS_REPORT = '/app/fncluster/api/v1/panels/report';
+  const API_RELAY_TOKENS = '/app/fncluster/api/v1/relay/tokens';
   const STORAGE_KEY = 'fncluster.widget.mode';
   const POLL_MS = 500;
   const PANELS_REPORT_MS = 30 * 60 * 1000;
+  const RELAY_URL_TTL = 11 * 60 * 60 * 1000;
   const COLLAPSED_HEIGHT = 80;
   const ENTRY_LIST_REQ = 'appcgi.sac.entry.v1.getEntryList';
   const REMOTE_ENTRY_LIMIT = 50; // per node
@@ -34,6 +36,9 @@
     nodes: [],
     nodesPromise: null,
     remoteEntries: 0,
+    relayUrls: new Map(),
+    relayFetchedAt: 0,
+    relayPromise: null,
     mode: 'local',
     timer: null,
     panelsTimer: null,
@@ -510,6 +515,51 @@
     }
   }
 
+  const isLocalNode = (node, hasLocalFlag) => node.local === true || (!hasLocalFlag && node.id === state.localId);
+
+  // Relay sessions are minted in one batch and cached for ~11h; without them
+  // relayable panels fall back to DIRECT URLs.
+  async function ensureRelayUrls() {
+    if (state.relayUrls.size && Date.now() - state.relayFetchedAt < RELAY_URL_TTL) return;
+    if (state.relayPromise) return state.relayPromise;
+    const nodes = state.nodes;
+    const hasLocalFlag = nodes.some(node => node && node.local === true);
+    const targets = [];
+    for (const node of nodes) {
+      if (!node || !node.online || isLocalNode(node, hasLocalFlag)) continue;
+      for (const panel of Array.isArray(node.panels) ? node.panels : []) {
+        if (panel && panel.relayable && panel.appName) targets.push({ nodeId: node.id, appName: panel.appName });
+      }
+    }
+    if (!targets.length) return;
+    state.relayPromise = (async () => {
+      try {
+        const response = await fetch(API_RELAY_TOKENS, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-FnCluster': '1' },
+          body: JSON.stringify({ targets }),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const relayUrls = new Map();
+          for (const item of (data && data.targets) || []) {
+            if (item && item.nodeId && item.appName && item.url) {
+              relayUrls.set(`${item.nodeId}|${item.appName}`, item.url);
+            }
+          }
+          state.relayUrls = relayUrls;
+          state.relayFetchedAt = Date.now();
+        }
+      } catch (_) {
+        /* relay is optional; DIRECT stays as the fallback */
+      } finally {
+        state.relayPromise = null;
+      }
+    })();
+    return state.relayPromise;
+  }
+
   function remoteEntries() {
     const nodes = state.nodes;
     const hasLocalFlag = nodes.some(node => node && node.local === true);
@@ -521,8 +571,7 @@
     const entries = [];
     for (const node of nodes) {
       if (!node || !node.online) continue;
-      const isLocal = node.local === true || (!hasLocalFlag && node.id === state.localId);
-      if (isLocal) continue;
+      if (isLocalNode(node, hasLocalFlag)) continue;
       const panels = Array.isArray(node.panels) ? node.panels : [];
       if (!panels.length) continue;
       const label = nodeLabel(node);
@@ -532,7 +581,11 @@
         // Poisoned catalogs (pre-0.2.3 feedback loop) may contain our own
         // synthetic keys; never treat them as real remote panels.
         if (!panel || !panel.id || String(panel.id).startsWith('fncluster:')) continue;
-        const target = directPanelURL(node, panel)
+        const relayURL = panel.relayable && panel.appName
+          ? state.relayUrls.get(`${node.id}|${panel.appName}`)
+          : '';
+        const target = relayURL
+          || directPanelURL(node, panel)
           || `/app/fncluster/?node=${encodeURIComponent(node.id)}&panel=${encodeURIComponent(panel.id)}`;
         const id = `${node.id}.${panel.id}`;
         entries.push({
@@ -589,6 +642,7 @@
       const data = message.data;
       if (!data || !Array.isArray(data.list)) return event;
       await ensureNodes();
+      await ensureRelayUrls();
       const extra = remoteEntries();
       if (!extra.length) return event;
       const existing = new Set(data.list.map(entry => entry && entry.entryKey));
