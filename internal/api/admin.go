@@ -54,6 +54,7 @@ type panelsReportEntry struct {
 	FullURL   string `json:"fullUrl"`
 	NativeApp bool   `json:"nativeApp"`
 	IsDisplay *bool  `json:"isDisplay"`
+	Source    string `json:"source"`
 }
 
 func (s *server) handlePanelsReport(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +68,13 @@ func (s *server) handlePanelsReport(w http.ResponseWriter, r *http.Request) {
 	for _, entry := range body.Entries {
 		// Hidden entries (previewers, file openers) stay out of the catalog.
 		if entry.IsDisplay != nil && !*entry.IsDisplay {
+			continue
+		}
+		// Never store this bridge's own synthetic all-apps entries; storing
+		// them would sync back and compose remote titles on every report.
+		if entry.Source == "fncluster" ||
+			strings.HasPrefix(entry.EntryKey, "fncluster:") ||
+			strings.HasPrefix(entry.AppName, "fncluster.remote.") {
 			continue
 		}
 		id := strings.TrimSpace(entry.EntryKey)

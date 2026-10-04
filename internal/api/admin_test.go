@@ -83,7 +83,8 @@ func TestPanelsReportMapsLocalizedEntries(t *testing.T) {
 	    {"entryKey":"app:trim.photos","appName":"trim.photos","title":"相册","type":"inbuilt","nativeApp":true,"isDisplay":true},
 	    {"entryKey":"entry:hidden","appName":"trim.preview","title":"Preview","type":"inbuilt","nativeApp":true,"isDisplay":false},
 	    {"entryKey":"entry:fncluster","appName":"fncluster","title":"FnCluster","type":"iframe","fullUrl":"/app/fncluster/","isDisplay":true},
-	    {"entryKey":"entry:external","appName":"someapp","title":"External","type":"url","fullUrl":"https://example.com/app","isDisplay":true}
+	    {"entryKey":"entry:external","appName":"someapp","title":"External","type":"url","fullUrl":"https://example.com/app","isDisplay":true},
+	    {"entryKey":"fncluster:node.panel","appName":"fncluster.remote.node.panel","title":"系统设置 · FN02","type":"iframe","fullUrl":"/app/fncluster/?node=node","isDisplay":true,"source":"fncluster"}
 	  ]
 	}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/panels/report", strings.NewReader(body))
@@ -93,6 +94,9 @@ func TestPanelsReportMapsLocalizedEntries(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusOK {
 		t.Fatalf("report returned %d: %s", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"count":4`) {
+		t.Fatalf("synthetic entry was stored: %s", response.Body.String())
 	}
 	request = httptest.NewRequest(http.MethodGet, "/api/v1/panels", nil)
 	response = httptest.NewRecorder()
@@ -109,6 +113,9 @@ func TestPanelsReportMapsLocalizedEntries(t *testing.T) {
 	}
 	if strings.Contains(out, "Preview") {
 		t.Fatal("hidden entry was stored in the catalog")
+	}
+	if strings.Contains(out, "fncluster.remote") || strings.Contains(out, "系统设置 · FN02") {
+		t.Fatalf("synthetic all-apps entry leaked into the catalog: %s", out)
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/panels/report", strings.NewReader(`{"entries":[{"entryKey":"x","title":"X"}]}`))

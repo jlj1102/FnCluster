@@ -48,6 +48,13 @@
   // eZ in the tested build: `new YG(url+'?type=main', {isMain:true})`.
   const isMainSocket = value => !!value && value.isMain === true && typeof value.useRes === 'function' && typeof value.send === 'function';
   const isSuccess = result => result === 'suc' || result === 'succ' || result === 'success';
+  // Our own synthetic all-apps entries; never report or re-inject them, or the
+  // catalog feedback loop composes titles like "系统设置 · FN02 · FN01 · FN02".
+  const isSyntheticEntry = entry => !!entry && (
+    entry.source === 'fncluster'
+    || String(entry.entryKey || '').startsWith('fncluster:')
+    || String(entry.appName || '').startsWith('fncluster.remote.')
+  );
 
   // Minified export names are build-specific; known names first, then feature scan.
   function resolveExports(mod) {
@@ -431,11 +438,13 @@
       const result = await api.entry.getEntryList({ data: { language } });
       const list = result && result.data && result.data.list;
       if (!Array.isArray(list) || !list.length) return;
+      const reportable = list.filter(entry => !isSyntheticEntry(entry));
+      if (!reportable.length) return;
       await fetch(API_PANELS_REPORT, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'X-FnCluster': '1' },
-        body: JSON.stringify({ language, entries: list }),
+        body: JSON.stringify({ language, entries: reportable }),
       });
     } catch (_) {
       /* the catalog is best-effort; the scan fallback stays in place */
@@ -476,6 +485,9 @@
       let count = 0;
       for (const panel of panels) {
         if (count >= REMOTE_ENTRY_LIMIT) break;
+        // Poisoned catalogs (pre-0.2.3 feedback loop) may contain our own
+        // synthetic keys; never treat them as real remote panels.
+        if (!panel || !panel.id || String(panel.id).startsWith('fncluster:')) continue;
         const path = `/app/fncluster/?node=${encodeURIComponent(node.id)}&panel=${encodeURIComponent(panel.id)}`;
         const id = `${node.id}.${panel.id}`;
         entries.push({
