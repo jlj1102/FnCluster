@@ -3,8 +3,11 @@
      1. Open the fnOS desktop and paste this whole file into the DevTools console.
      2. Verify the interceptor works:
           (await __fnclusterAllApps.fetch()).filter(e => e.entryKey.startsWith('fncluster:'))
-     3. Switch the desktop language once (or log out/in) so the desktop refetches
-        its entry list through our interceptor, then open "全部应用".
+     3. Make the desktop refetch its entry list through the interceptor:
+          __fnclusterAllApps.refresh()
+        then open "全部应用". (refresh emits the same `domainEvent` fnOS uses for
+        `user-desktop-entry-change`, so nothing is switched; it is throttled to
+        one trigger per second, just call it again after a moment.)
      4. Check: do the two probe entries render? Click one - it should open a
         native window pointing at /app/fncluster/?probe=N.
      5. If they do not show, try __fnclusterAllApps.setDisplay(true) and repeat
@@ -17,6 +20,7 @@
   const PROBE_ICON = '/app-center-static/icon/fncluster/icon.png';
 
   let displayFlag = false;
+  let mainSocket = null;
   const state = { socket: false, injections: 0, last: null, disabled: false, display: false };
 
   const isMainSocket = value => !!value && value.isMain === true && typeof value.useRes === 'function' && typeof value.send === 'function';
@@ -98,6 +102,7 @@
       console.log('[FnCluster PoC] injected entry:', JSON.parse(JSON.stringify(extra[0])));
       return event;
     });
+    mainSocket = main;
     state.socket = true;
     console.log('[FnCluster PoC] interceptor installed on the main socket');
   }
@@ -107,10 +112,19 @@
       return { ...state };
     },
     entries: probeEntries,
+    refresh() {
+      if (!mainSocket) {
+        console.warn('[FnCluster PoC] main socket not ready yet');
+        return;
+      }
+      // Same domain event the desktop subscribes to for entry-list refreshes.
+      mainSocket.emit('domainEvent', { domainEvent: { event: 'user-desktop-entry-change', from: 'trim-sac' } });
+      console.log('[FnCluster PoC] desktop entry refetch triggered (throttled to 1/s; repeat after a moment if needed)');
+    },
     setDisplay(value) {
       displayFlag = !!value;
       state.display = displayFlag;
-      console.log('[FnCluster PoC] isDisplay =', displayFlag, '- re-run the language switch to refetch');
+      console.log('[FnCluster PoC] isDisplay =', displayFlag, '- re-run __fnclusterAllApps.refresh()');
     },
     disable() {
       state.disabled = true;
