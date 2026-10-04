@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FnCluster</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header><h1>FnCluster</h1><span id="status">连接中…</span></header>
+    <section class="summary" aria-label="集群概览">
+      <article><h2>在线节点</h2><strong id="nodes">—</strong></article>
+      <article><h2>集群总存储</h2><strong id="storage">—</strong><small>在线节点容量之和，并非共享存储池</small></article>
+    </section>
+
+    <h2>集群管理</h2>
+    <section class="manager">
+      <article>
+        <p id="mesh-status">读取中…</p>
+        <div id="mesh-setup" class="hidden">
+          <h3>创建新集群</h3>
+          <label>本机地址（用于节点间连接）
+            <select id="mesh-address"></select>
+          </label>
+          <button id="mesh-init" type="button">创建集群</button>
+        </div>
+        <div id="mesh-join" class="hidden">
+          <h3>加入现有集群</h3>
+          <label>种子节点 IP:端口
+            <input id="mesh-seed" placeholder="192.168.1.10:38671" autocomplete="off">
+          </label>
+          <label>配对码（由种子节点生成）
+            <textarea id="mesh-code" rows="2" placeholder="粘贴配对码" autocomplete="off"></textarea>
+          </label>
+          <p class="hint">配对码一次性、15 分钟有效；重新加入前需要在创建者处重新生成。</p>
+          <label>本机地址（用于节点间连接）
+            <select id="mesh-address-join"></select>
+          </label>
+          <button id="mesh-join-btn" type="button">加入集群</button>
+        </div>
+        <div id="mesh-token" class="hidden">
+          <h3>配对码</h3>
+          <p class="hint">在另一台节点的 FnCluster 页面填写本机 IP 与这段配对码即可加入。15 分钟内有效，只能使用一次。</p>
+          <textarea id="mesh-code-out" rows="2" readonly placeholder="点击下方按钮生成"></textarea>
+          <div class="row">
+            <button id="mesh-token-btn" type="button">生成配对码</button>
+            <button id="mesh-copy" type="button" class="secondary">复制</button>
+          </div>
+        </div>
+        <div id="mesh-members" class="hidden">
+          <h3>成员</h3>
+          <ul id="mesh-member-list"></ul>
+          <button id="mesh-leave" type="button" class="danger">退出集群</button>
+        </div>
+        <p id="mesh-error" class="error hidden" role="alert"></p>
+        <details id="mesh-advanced">
+          <summary>高级 / 调试</summary>
+          <p class="hint">重置节点身份会删除本机的集群状态与节点 ID，用于节点被移除后卡住或调试。创建者上仍保留旧成员记录，需要在那里移除；其他节点的数据和存储不受影响。</p>
+          <button id="mesh-reset" type="button" class="danger">重置节点身份</button>
+        </details>
+      </article>
+
+      <article>
+        <h3>飞牛桌面集成</h3>
+        <p>状态：<strong id="webui-status">—</strong></p>
+        <p class="hint">仅支持已验证的 fnOS 1.2.0701 页面。启用与恢复会修改 /usr/trim/www/index.html；健康检查失败会自动回滚。未登录时网关会遮挡页面，启用后请在已登录的浏览器里确认角标。</p>
+        <p class="hint">审计日志：<code id="audit-path">—</code></p>
+        <p class="hint" id="archive-hint">fnOS 还原包：—</p>
+        <div class="row">
+          <button id="webui-apply" type="button">启用角标</button>
+          <button id="webui-apply-compatible" type="button" class="secondary hidden">兼容模式启用</button>
+          <button id="webui-restore" type="button" class="danger">恢复原始桌面</button>
+          <button id="webui-enable" type="button" class="secondary">解除安全模式</button>
+        </div>
+      </article>
+
+      <article>
+        <h3>日志</h3>
+        <div class="row">
+          <select id="log-source">
+            <option value="service">服务日志</option>
+            <option value="audit">审计日志</option>
+          </select>
+          <button id="log-refresh" type="button" class="secondary">刷新</button>
+        </div>
+        <pre id="log-output" class="log">加载中…</pre>
+      </article>
+    </section>
+
+    <h2>节点</h2>
+    <section id="node-list" class="node-list" aria-live="polite"></section>
+    <p class="note">应用和系统面板目录仅显示发现结果；远端原生面板仍在验证独立会话方案。</p>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

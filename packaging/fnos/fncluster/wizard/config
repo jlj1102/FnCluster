@@ -1,0 +1,27 @@
+[
+  {
+    "stepTitle": "FnCluster WebUI 集成",
+    "items": [
+      {
+        "type": "radio",
+        "field": "wizard_fncluster_webui_action",
+        "label": "飞牛桌面集成",
+        "initValue": "keep",
+        "options": [
+          { "label": "保持现状", "value": "keep" },
+          { "label": "启用集群状态角标", "value": "apply" },
+          { "label": "恢复原始飞牛桌面", "value": "restore" }
+        ],
+        "rules": [{ "required": true, "message": "请选择一项" }]
+      },
+      {
+        "type": "tips",
+        "helpText": "仅支持已验证的 fnOS 1.2.0701 页面。启用时会备份并检查桌面入口；失败会自动恢复。角标显示在线节点和独立存储容量之和。"
+      },
+      {
+        "type": "tips",
+        "helpText": "安装后也可以直接打开飞牛桌面上的 FnCluster 页面：创建/加入集群、生成配对码、启用或恢复桌面集成都在页面中完成，无需命令行。"
+      }
+    ]
+  }
+]

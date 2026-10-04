@@ -1,0 +1,75 @@
+#!/bin/sh
+set -eu
+
+BIN="${TRIM_APPDEST}/server/fncluster"
+SOCKET="${TRIM_APPDEST}/fncluster.sock"
+PID="${TRIM_PKGVAR}/fncluster.pid"
+LOG="${TRIM_PKGVAR}/fncluster.log"
+
+pid_of() {
+    [ -f "$PID" ] || return 1
+    read -r pid < "$PID" || return 1
+    case "$pid" in *[!0-9]*|'') return 1;; esac
+    printf '%s' "$pid"
+}
+
+# A process belongs to this package when /proc/pid/exe matches the binary.
+# After an FPK upgrade replaces the binary in place the kernel reports the
+# path with a " (deleted)" suffix; treat that as ours so stop/start can clear
+# the previous agent instead of leaving it running next to the new one.
+exe_matches() {
+    pid="$(pid_of)" || return 1
+    bin="$(readlink -f "$BIN" 2>/dev/null || true)"
+    [ -n "$bin" ] || return 1
+    exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+    if [ "$1" = "deleted" ]; then
+        [ "$exe" = "$bin (deleted)" ]
+    else
+        [ "$exe" = "$bin" ]
+    fi
+}
+
+running() { exe_matches exact; }
+stale() { exe_matches deleted; }
+
+terminate() {
+    pid="$1"
+    kill "$pid" 2>/dev/null || true
+    count=0
+    while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 5 ]; do
+        sleep 1
+        count=$((count + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+        return 1
+    fi
+    return 0
+}
+
+case "${1:-}" in
+    start)
+        if stale; then
+            terminate "$(pid_of)" || { echo "FnCluster did not stop cleanly" >&2; exit 1; }
+            rm -f "$PID"
+        fi
+        if running; then exit 0; fi
+        mkdir -p "$TRIM_PKGVAR"
+        "$BIN" serve --data-dir "$TRIM_PKGVAR" --unix-socket "$SOCKET" \
+            --inject-file "${TRIM_APPDEST}/inject/loader.js" \
+            --webui-health-url http://127.0.0.1:5666/ \
+            --log-file "$LOG" >> "$LOG" 2>&1 &
+        echo "$!" > "$PID"
+        sleep 1
+        running || { echo "FnCluster failed to start; see $LOG" >&2; exit 1; }
+        ;;
+    stop)
+        if running || stale; then
+            terminate "$(pid_of)" || { echo "FnCluster did not stop cleanly" >&2; exit 1; }
+        fi
+        rm -f "$PID"
+        ;;
+    status)
+        running
+        ;;
+    *) exit 1 ;;
+esac

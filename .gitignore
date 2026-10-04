@@ -1,0 +1,10 @@
+.research/
+.cache/
+fnos-web/
+fnos-web-reversed/
+*.zip
+*.tar.gz
+packaging/fnos/fncluster/app/server/fncluster
+packaging/fnos/fncluster/*.fpk
+packaging/fnos/*.fpk
+fncluster.fpk

@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+if [ -f "${TRIM_PKGVAR}/webui-patch.json" ]; then
+    status="$("${TRIM_APPDEST}/server/fncluster" webui status --state-dir "$TRIM_PKGVAR" 2>/dev/null || true)"
+    if [ "$status" = "PATCHED" ]; then
+        # The new service re-applies after the upgraded binary and loader are
+        # in place; without this marker a "keep" upgrade would stay restored.
+        touch "${TRIM_PKGVAR}/webui-reapply"
+    fi
+    "${TRIM_APPDEST}/server/fncluster" recover webui --state-dir "$TRIM_PKGVAR"
+fi

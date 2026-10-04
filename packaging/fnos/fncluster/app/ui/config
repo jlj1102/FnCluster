@@ -1,0 +1,13 @@
+{
+  ".url": {
+    "fncluster.main": {
+      "title": "FnCluster",
+      "icon": "images/icon_{0}.png",
+      "type": "iframe",
+      "url": "/app/fncluster/",
+      "gatewaySocket": "fncluster.sock",
+      "gatewayPrefix": "/app/fncluster",
+      "allUsers": false
+    }
+  }
+}

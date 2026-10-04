@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+if [ -f "${TRIM_PKGVAR}/webui-patch.json" ]; then
+    "${TRIM_APPDEST}/server/fncluster" recover webui --state-dir "$TRIM_PKGVAR"
+fi

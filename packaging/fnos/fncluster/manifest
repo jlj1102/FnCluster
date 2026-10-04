@@ -1,0 +1,8 @@
+appname               = fncluster
+version               = 0.1.23
+display_name          = FnCluster
+desc                  = Multi-node fnOS status and management foundation. Each node keeps independent storage.
+platform              = x86
+source                = thirdparty
+desktop_uidir         = ui
+desktop_applaunchname = fncluster.main

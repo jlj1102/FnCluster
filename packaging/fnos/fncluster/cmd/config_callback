@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+
+BIN="${TRIM_APPDEST}/server/fncluster"
+case "${wizard_fncluster_webui_action:-keep}" in
+    keep) ;;
+    apply)
+        if [ -f "${TRIM_PKGVAR}/webui-reapply" ]; then
+            # An upgrade from a patched install: the new service re-applies
+            # after startup, when its own socket serves the new loader.
+            exit 0
+        fi
+        status="$("$BIN" webui status --state-dir "$TRIM_PKGVAR")"
+        if [ "$status" = SAFE_MODE ]; then
+            "$BIN" webui enable --state-dir "$TRIM_PKGVAR"
+        fi
+        "$BIN" webui apply --state-dir "$TRIM_PKGVAR" \
+            --loader-file "${TRIM_APPDEST}/inject/loader.js" \
+            --loader-socket "${TRIM_APPDEST}/fncluster.sock" \
+            --health-url http://127.0.0.1:5666/
+        ;;
+    restore)
+        rm -f "${TRIM_PKGVAR}/webui-reapply"
+        if [ -f "${TRIM_PKGVAR}/webui-patch.json" ]; then
+            "$BIN" recover webui --state-dir "$TRIM_PKGVAR"
+        fi
+        ;;
+    *) echo 'invalid WebUI action' >&2; exit 1 ;;
+esac
