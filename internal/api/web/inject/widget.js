@@ -1,24 +1,38 @@
 /* FnCluster desktop widget bridge for the verified fnOS 1.2.0701 build.
-   Adds a node selector next to the native desktop widget's display settings
-   with two choices: the local native cards, or the cluster overview panel.
-   The injected nodes live inside the native widget DOM (same stacking and
-   clipping as the expanded window) and a MutationObserver re-attaches them if
-   React reconciliation ever removes them. Browser-only. */
+   - Node selector next to the native desktop widget's display settings with two
+     choices: the local native cards, or the cluster overview panel. The
+     injected nodes live inside the native widget DOM (same stacking and
+     clipping as the expanded window); a MutationObserver re-attaches them if
+     React reconciliation ever removes them.
+   - Reports the desktop's own localized entry list to the agent.
+   - Appends remote node app entries to the native "全部应用" list by hooking
+     the main socket's getEntryList response (append-only, feature-detected).
+   Browser-only; nothing on disk changes. */
 (() => {
   if (window.__fnclusterWidget) return;
   window.__fnclusterWidget = true;
 
   const BUNDLE = '/assets/index-DhUqaTaA.js';
   const API_NODES = '/app/fncluster/api/v1/nodes';
+  const API_MESH = '/app/fncluster/api/v1/mesh';
   const API_PANELS_REPORT = '/app/fncluster/api/v1/panels/report';
   const STORAGE_KEY = 'fncluster.widget.mode';
   const POLL_MS = 500;
   const PANELS_REPORT_MS = 30 * 60 * 1000;
   const COLLAPSED_HEIGHT = 80;
+  const ENTRY_LIST_REQ = 'appcgi.sac.entry.v1.getEntryList';
+  const REMOTE_ENTRY_LIMIT = 50; // per node
+  const REMOTE_ENTRY_ICON = '/app-center-static/icon/fncluster/icon.png';
 
   const state = {
     api: null,
+    main: null,
+    mainSocket: null,
+    mainPending: new Map(),
+    localId: '',
     nodes: [],
+    nodesPromise: null,
+    remoteEntries: 0,
     mode: 'local',
     timer: null,
     panelsTimer: null,
@@ -31,12 +45,39 @@
   };
 
   const isUsrd = value => !!value && value.usrd && typeof value.usrd.get === 'function' && !!value.sysinfo && typeof value.sysinfo.getUptime === 'function';
+  // eZ in the tested build: `new YG(url+'?type=main', {isMain:true})`.
+  const isMainSocket = value => !!value && value.isMain === true && typeof value.useRes === 'function' && typeof value.send === 'function';
+  const isSuccess = result => result === 'suc' || result === 'succ' || result === 'success';
 
-  // Minified export names are build-specific; known name first, then feature scan.
-  function resolveApi(mod) {
+  // Minified export names are build-specific; known names first, then feature scan.
+  function resolveExports(mod) {
     let api = mod.Hc;
-    if (!isUsrd(api)) api = Object.values(mod || {}).find(isUsrd) || api;
-    return api;
+    let main = mod.Gc;
+    if (!isUsrd(api) || !isMainSocket(main)) {
+      const values = Object.values(mod || {});
+      if (!isUsrd(api)) api = values.find(isUsrd) || api;
+      if (!isMainSocket(main)) main = values.find(isMainSocket) || main;
+    }
+    return { api, main };
+  }
+
+  function remember(pending, payload) {
+    if (typeof payload === 'string') {
+      // The signed request interceptor may run before us and prefix the JSON.
+      const start = payload.indexOf('{');
+      if (start < 0) return;
+      try {
+        payload = JSON.parse(payload.slice(start));
+      } catch (_) {
+        return;
+      }
+    }
+    if (!payload || !payload.reqid || !payload.req) return;
+    pending.set(payload.reqid, payload.req);
+    if (pending.size > 512) {
+      const first = pending.keys().next();
+      if (!first.done) pending.delete(first.value);
+    }
   }
 
   const loadMode = () => {
@@ -403,13 +444,118 @@
     }
   }
 
+  // --- native all-apps injection (remote entries) ---
+  // The desktop reads its catalog from appcgi.sac.entry.v1.getEntryList; we
+  // append one synthetic entry per remote node panel. Append-only, keyed by
+  // reqid, and it never touches anything but that response.
+  async function ensureNodes() {
+    if (state.nodes.length) return state.nodes;
+    if (!state.nodesPromise) {
+      state.nodesPromise = (async () => {
+        try {
+          const response = await fetch(API_NODES, { credentials: 'same-origin' });
+          if (response.ok) {
+            const nodes = await response.json();
+            if (Array.isArray(nodes) && nodes.length) state.nodes = nodes;
+          }
+        } catch (_) { /* no remote catalog yet */ }
+        state.nodesPromise = null;
+        return state.nodes;
+      })();
+    }
+    return state.nodesPromise;
+  }
+
+  function remoteEntries() {
+    const entries = [];
+    for (const node of state.nodes) {
+      if (!node || !node.online || node.id === state.localId) continue;
+      const panels = Array.isArray(node.panels) ? node.panels : [];
+      if (!panels.length) continue;
+      const label = nodeLabel(node);
+      let count = 0;
+      for (const panel of panels) {
+        if (count >= REMOTE_ENTRY_LIMIT) break;
+        const path = `/app/fncluster/?node=${encodeURIComponent(node.id)}&panel=${encodeURIComponent(panel.id)}`;
+        const id = `${node.id}.${panel.id}`;
+        entries.push({
+          entryKey: `fncluster:${id}`,
+          source: 'fncluster',
+          sourceName: 'FnCluster',
+          appName: `fncluster.remote.${id}`,
+          appID: `fncluster.remote.${id}`,
+          entryName: `fncluster.remote.${id}`,
+          title: `${panel.title} · ${label}`,
+          desc: `FnCluster remote ${panel.kind} panel on ${label}`,
+          icon: REMOTE_ENTRY_ICON,
+          type: 'iframe',
+          uri: { host: '', path, port: '', protocol: '' },
+          fullUrl: path,
+          microApp: false,
+          nativeApp: false,
+          isDisplay: false,
+          status: 'available',
+        });
+        count += 1;
+      }
+    }
+    return entries;
+  }
+
+  function installEntryInjection() {
+    const socket = state.main;
+    if (!isMainSocket(socket) || state.mainSocket === socket) return false;
+    state.mainSocket = socket;
+    // Run before the socket's own signing interceptor so reqid/req stay readable.
+    const recorder = {
+      fulfilled: event => {
+        remember(state.mainPending, event && event.data);
+        return event;
+      },
+      rejected: error => Promise.reject(error),
+    };
+    if (socket.interceptors && Array.isArray(socket.interceptors.request)) {
+      socket.interceptors.request.unshift(recorder);
+    } else {
+      socket.useReq(event => {
+        remember(state.mainPending, event && event.data);
+        return event;
+      });
+    }
+    socket.useRes(async event => {
+      const message = event && event.data;
+      if (!message || !message.reqid) return event;
+      if (state.mainPending.get(message.reqid) !== ENTRY_LIST_REQ || !isSuccess(message.result)) return event;
+      const data = message.data;
+      if (!data || !Array.isArray(data.list)) return event;
+      await ensureNodes();
+      const extra = remoteEntries();
+      if (!extra.length) return event;
+      const existing = new Set(data.list.map(entry => entry && entry.entryKey));
+      const fresh = extra.filter(entry => !existing.has(entry.entryKey));
+      if (!fresh.length) return event;
+      data.list = data.list.concat(fresh);
+      state.remoteEntries = fresh.length;
+      console.log(`[FnCluster] injected ${fresh.length} remote entries into the desktop app list`);
+      return event;
+    });
+    console.log('[FnCluster] all-apps injection enabled');
+    return true;
+  }
+
   // --- data polling ---
   async function poll() {
     try {
-      const response = await fetch(API_NODES, { credentials: 'same-origin' });
-      if (response.ok) {
-        const nodes = await response.json();
+      const requests = [fetch(API_NODES, { credentials: 'same-origin' })];
+      if (!state.localId) requests.push(fetch(API_MESH, { credentials: 'same-origin' }));
+      const [nodesResponse, meshResponse] = await Promise.all(requests);
+      if (nodesResponse.ok) {
+        const nodes = await nodesResponse.json();
         if (Array.isArray(nodes)) state.nodes = nodes;
+      }
+      if (meshResponse && meshResponse.ok) {
+        const mesh = await meshResponse.json();
+        if (mesh && mesh.nodeId) state.localId = mesh.nodeId;
       }
     } catch (_) { /* desktop must keep working */ }
     if (overviewActive()) await loadOverviewItems();
@@ -424,11 +570,14 @@
     } catch (_) {
       return;
     }
-    state.api = resolveApi(mod);
+    const found = resolveExports(mod);
+    state.api = found.api;
+    state.main = isMainSocket(found.main) ? found.main : null;
     if (!isUsrd(state.api)) {
       console.log('[FnCluster] desktop widget bridge disabled: usrd export not found');
       return;
     }
+    state.main ? installEntryInjection() : console.log('[FnCluster] main socket not found; all-apps injection disabled');
     // No debounce: reattach never renders, so running at the mutation
     // microtask keeps the overview attached in the same frame as React's
     // commit and cannot loop.
@@ -450,6 +599,9 @@
             menu: !!(state.menu && state.menu.parentElement),
             panel: !!(state.panel && state.panel.parentElement),
           },
+          localId: state.localId,
+          mainSocket: !!state.mainSocket,
+          remoteEntries: state.remoteEntries,
           nodes: state.nodes.map(node => ({ id: node.id, name: node.name, online: node.online })),
         };
       },

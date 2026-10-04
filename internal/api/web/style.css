@@ -26,3 +26,5 @@ button.small{padding:4px 10px;font-size:13px}
 .panel-kind{color:#66717e;font-size:12px;margin-right:4px}
 .panel-chip{background:#eef4fb;color:#25517d;border:1px solid #d8e6f5;border-radius:999px;padding:1px 8px;font-size:12px;line-height:18px}
 .panel-hint{color:#8a949e;font-size:12px;margin-top:4px}
+.node.target{border-color:#1476d4;box-shadow:0 0 0 2px #1476d433}
+.panel-chip.target{background:#1476d4;color:#fff;border-color:#1476d4}

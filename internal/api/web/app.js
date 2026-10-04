@@ -9,6 +9,31 @@ const uptime = seconds => Number.isFinite(seconds) && seconds > 0
   ? `${Math.floor(seconds / 86400)}天 ${Math.floor(seconds % 86400 / 3600)}小时`
   : '—';
 const short = id => id ? `${id.slice(0, 8)}…` : '—';
+let targetScrolled = false;
+
+// A remote panel entry opens /app/fncluster/?node=...&panel=...; highlight the
+// matching node card (and panel chip) so the user sees where the click landed.
+function focusTarget() {
+  const params = new URLSearchParams(location.search);
+  const nodeId = params.get('node');
+  if (!nodeId) return;
+  const card = document.querySelector(`.node[data-node-id="${CSS.escape(nodeId)}"]`);
+  if (!card) return;
+  card.classList.add('target');
+  const panelId = params.get('panel');
+  if (panelId) {
+    for (const chip of card.querySelectorAll('.panel-chip')) {
+      if (chip.dataset.panelId === panelId) {
+        chip.classList.add('target');
+        break;
+      }
+    }
+  }
+  if (!targetScrolled) {
+    targetScrolled = true;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
 
 async function api(path, options = {}) {
   const method = options.method || 'GET';
@@ -162,6 +187,7 @@ async function refresh() {
     $('node-list').replaceChildren(...nodes.map(node => {
       const card = document.createElement('article');
       card.className = 'node';
+      card.dataset.nodeId = node.id;
       const title = document.createElement('h3');
       title.textContent = `${node.name} · ${node.online ? '在线' : '离线'}`;
       const info = document.createElement('p');
@@ -195,6 +221,7 @@ async function refresh() {
         for (const panel of group) {
           const chip = document.createElement('span');
           chip.className = 'panel-chip';
+          chip.dataset.panelId = panel.id;
           chip.textContent = panel.title;
           if (panel.native) chip.title = '原生面板';
           line.append(chip);
@@ -212,6 +239,7 @@ async function refresh() {
       card.append(title, info, metrics, volumes, network, panels);
       return card;
     }));
+    focusTarget();
   } catch (error) {
     $('status').textContent = error.message;
     $('status').classList.add('error');
