@@ -10,8 +10,10 @@
 
   const BUNDLE = '/assets/index-DhUqaTaA.js';
   const API_NODES = '/app/fncluster/api/v1/nodes';
+  const API_PANELS_REPORT = '/app/fncluster/api/v1/panels/report';
   const STORAGE_KEY = 'fncluster.widget.mode';
   const POLL_MS = 500;
+  const PANELS_REPORT_MS = 30 * 60 * 1000;
   const COLLAPSED_HEIGHT = 80;
 
   const state = {
@@ -19,11 +21,13 @@
     nodes: [],
     mode: 'local',
     timer: null,
+    panelsTimer: null,
     button: null,
     menu: null,
     panel: null,
     observer: null,
     observedWrapper: null,
+    panelsReporting: false,
   };
 
   const isUsrd = value => !!value && value.usrd && typeof value.usrd.get === 'function' && !!value.sysinfo && typeof value.sysinfo.getUptime === 'function';
@@ -373,6 +377,32 @@
     ensurePanel(view);
   }
 
+  // The desktop's own entry list is the complete, localized catalog (system
+  // apps, FPK apps on any volume, external links). Report it to the agent so
+  // the FnCluster UI and the remote panels can use it; best-effort only.
+  async function reportPanels() {
+    if (state.panelsReporting) return;
+    const api = state.api;
+    if (!api || !api.entry || typeof api.entry.getEntryList !== 'function') return;
+    state.panelsReporting = true;
+    try {
+      const language = document.documentElement.lang || navigator.language || 'zh-CN';
+      const result = await api.entry.getEntryList({ data: { language } });
+      const list = result && result.data && result.data.list;
+      if (!Array.isArray(list) || !list.length) return;
+      await fetch(API_PANELS_REPORT, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-FnCluster': '1' },
+        body: JSON.stringify({ language, entries: list }),
+      });
+    } catch (_) {
+      /* the catalog is best-effort; the scan fallback stays in place */
+    } finally {
+      state.panelsReporting = false;
+    }
+  }
+
   // --- data polling ---
   async function poll() {
     try {
@@ -405,7 +435,9 @@
     state.observer = new MutationObserver(() => reattach(layout()));
     loadMode();
     await poll();
+    reportPanels();
     state.timer = setInterval(poll, POLL_MS);
+    state.panelsTimer = setInterval(reportPanels, PANELS_REPORT_MS);
     window.addEventListener('resize', syncUI);
     window.__fnclusterWidgetDebug = {
       get state() {

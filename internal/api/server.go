@@ -68,6 +68,7 @@ func New(state *cluster.State, adminOps *admin.Admin, runtime *mesh.Runtime) htt
 			writeJSON(w, state.Panels())
 		}
 	})
+	mux.HandleFunc("/api/v1/panels/report", s.handlePanelsReport)
 	mux.HandleFunc("/api/v1/panels/", func(w http.ResponseWriter, r *http.Request) {
 		if !getOnly(w, r) {
 			return

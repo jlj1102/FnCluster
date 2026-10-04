@@ -57,6 +57,9 @@ type Node struct {
 	Online       bool         `json:"online"`
 	Metrics      Metrics      `json:"metrics"`
 	Panels       []PanelEntry `json:"panels,omitempty"`
+	// PanelsSource is "desktop" for the localized list reported by the fnOS
+	// desktop page and "scan" for the filesystem fallback.
+	PanelsSource string `json:"panelsSource,omitempty"`
 }
 
 type Summary struct {
@@ -106,12 +109,19 @@ func (s *State) UpdateLocal(metrics Metrics) {
 	s.nodes[s.localID] = node
 }
 
-func (s *State) UpdateLocalPanels(panels []PanelEntry) {
+func (s *State) UpdateLocalPanels(panels []PanelEntry, source string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	node := s.nodes[s.localID]
 	node.Panels = append([]PanelEntry(nil), panels...)
+	node.PanelsSource = source
 	s.nodes[s.localID] = node
+}
+
+func (s *State) LocalPanelsSource() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.nodes[s.localID].PanelsSource
 }
 
 func (s *State) Panels() []PanelEntry {

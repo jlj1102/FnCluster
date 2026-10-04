@@ -74,6 +74,51 @@ func TestMutationInitStatusAndAudit(t *testing.T) {
 	}
 }
 
+func TestPanelsReportMapsLocalizedEntries(t *testing.T) {
+	handler, _ := testHandler(t)
+	body := `{
+	  "language": "zh-CN",
+	  "entries": [
+	    {"entryKey":"app:trim.setting","appName":"trim.setting","title":"系统设置","type":"inbuilt","nativeApp":true,"isDisplay":true},
+	    {"entryKey":"app:trim.photos","appName":"trim.photos","title":"相册","type":"inbuilt","nativeApp":true,"isDisplay":true},
+	    {"entryKey":"entry:hidden","appName":"trim.preview","title":"Preview","type":"inbuilt","nativeApp":true,"isDisplay":false},
+	    {"entryKey":"entry:fncluster","appName":"fncluster","title":"FnCluster","type":"iframe","fullUrl":"/app/fncluster/","isDisplay":true},
+	    {"entryKey":"entry:external","appName":"someapp","title":"External","type":"url","fullUrl":"https://example.com/app","isDisplay":true}
+	  ]
+	}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/panels/report", strings.NewReader(body))
+	request.Header.Set("X-FnCluster", "1")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("report returned %d: %s", response.Code, response.Body.String())
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/panels", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	out := response.Body.String()
+	for _, want := range []string{
+		`"title":"系统设置"`, `"kind":"system"`,
+		`"title":"FnCluster"`, `"kind":"application"`, `"directUrl":"/app/fncluster/"`,
+		`"kind":"external"`, `"externalUrl":"https://example.com/app"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("panels missing %q: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "Preview") {
+		t.Fatal("hidden entry was stored in the catalog")
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/panels/report", strings.NewReader(`{"entries":[{"entryKey":"x","title":"X"}]}`))
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("unguarded report returned %d", response.Code)
+	}
+}
+
 func TestMutationResetIdentity(t *testing.T) {
 	handler, adminOps := testHandler(t)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/mesh/init", strings.NewReader(`{"advertise":"127.0.0.1:38671"}`))

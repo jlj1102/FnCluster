@@ -20,7 +20,7 @@
     if (!document.getElementById('fncluster-widget-script')) {
       const widget = document.createElement('script');
       widget.id = 'fncluster-widget-script';
-      widget.src = '/app/fncluster/inject/widget.js?v=0.1.23';
+      widget.src = '/app/fncluster/inject/widget.js?v=0.1.24';
       widget.defer = true;
       document.head.append(widget);
     }

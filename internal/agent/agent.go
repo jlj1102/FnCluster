@@ -41,8 +41,13 @@ func New(dataDir string, mounts []string) (*Agent, error) {
 
 func (a *Agent) Run(ctx context.Context, interval time.Duration) {
 	collect := func() {
-		if panels, err := catalog.Scan("/var/apps", a.State.Local().ID, a.State.Local().FnOSVersion); err == nil {
-			a.State.UpdateLocalPanels(panels)
+		// The desktop report is authoritative: it is complete, localized and
+		// includes apps installed on data volumes. Never overwrite it with the
+		// English filesystem fallback until the process restarts.
+		if a.State.LocalPanelsSource() != "desktop" {
+			if panels, err := catalog.Scan("/var/apps", a.State.Local().ID, a.State.Local().FnOSVersion); err == nil {
+				a.State.UpdateLocalPanels(panels, "scan")
+			}
 		}
 		metrics, err := a.collector.Collect()
 		if err != nil {

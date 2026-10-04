@@ -180,12 +180,36 @@ async function refresh() {
       const rx = counters.reduce((sum, [, item]) => sum + (item.receiveBytes || 0), 0);
       const tx = counters.reduce((sum, [, item]) => sum + (item.transmitBytes || 0), 0);
       network.textContent = counters.length ? `网络累计：接收 ${bytes(rx)} · 发送 ${bytes(tx)}` : '网络：暂无数据';
-      const apps = document.createElement('p');
-      const panels = node.panels || [];
-      apps.textContent = panels.length
-        ? `应用与面板：${panels.map(panel => `${panel.title}${panel.native ? '（原生）' : ''}`).join(' · ')}`
-        : '应用与面板：未发现';
-      card.append(title, info, metrics, volumes, network, apps);
+      const panels = document.createElement('div');
+      panels.className = 'panels';
+      const panelList = node.panels || [];
+      for (const [label, kind] of [['系统面板', 'system'], ['应用', 'application'], ['外部', 'external']]) {
+        const group = panelList.filter(panel => panel.kind === kind);
+        if (!group.length) continue;
+        const line = document.createElement('div');
+        line.className = 'panel-line';
+        const name = document.createElement('span');
+        name.className = 'panel-kind';
+        name.textContent = label;
+        line.append(name);
+        for (const panel of group) {
+          const chip = document.createElement('span');
+          chip.className = 'panel-chip';
+          chip.textContent = panel.title;
+          if (panel.native) chip.title = '原生面板';
+          line.append(chip);
+        }
+        panels.append(line);
+      }
+      if (!panels.children.length) {
+        panels.textContent = '应用与面板：未发现';
+      } else if (node.panelsSource === 'scan') {
+        const hint = document.createElement('div');
+        hint.className = 'panel-hint';
+        hint.textContent = '扫描兜底列表；打开该节点桌面后会自动换成完整本地化列表。';
+        panels.append(hint);
+      }
+      card.append(title, info, metrics, volumes, network, panels);
       return card;
     }));
   } catch (error) {
