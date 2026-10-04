@@ -28,6 +28,7 @@
     api: null,
     main: null,
     mainSocket: null,
+    appsStore: null,
     mainPending: new Map(),
     localId: '',
     nodes: [],
@@ -56,16 +57,21 @@
     || String(entry.appName || '').startsWith('fncluster.remote.')
   );
 
+  // The desktop app store exposed as `Pa`: a derived state machine whose
+  // `state.apps` is what the native launchpad renders.
+  const isAppsStore = value => !!value && value.state && Array.isArray(value.state.apps);
+  const isRemoteApp = app => !!app && String(app.appName || '').startsWith('fncluster.remote.');
+
   // Minified export names are build-specific; known names first, then feature scan.
   function resolveExports(mod) {
     let api = mod.Hc;
     let main = mod.Gc;
-    if (!isUsrd(api) || !isMainSocket(main)) {
-      const values = Object.values(mod || {});
-      if (!isUsrd(api)) api = values.find(isUsrd) || api;
-      if (!isMainSocket(main)) main = values.find(isMainSocket) || main;
-    }
-    return { api, main };
+    let apps = mod.Pa;
+    const values = Object.values(mod || {});
+    if (!isUsrd(api)) api = values.find(isUsrd) || api;
+    if (!isMainSocket(main)) main = values.find(isMainSocket) || main;
+    if (!isAppsStore(apps)) apps = values.find(isAppsStore) || apps;
+    return { api, main, apps };
   }
 
   function remember(pending, payload) {
@@ -476,9 +482,18 @@
   }
 
   function remoteEntries() {
+    const nodes = state.nodes;
+    const hasLocalFlag = nodes.some(node => node && node.local === true);
+    if (!hasLocalFlag && !state.localId) {
+      // No local marker in the nodes payload (older agent) and mesh has not
+      // answered yet: stay out rather than injecting local apps as remote.
+      return [];
+    }
     const entries = [];
-    for (const node of state.nodes) {
-      if (!node || !node.online || node.id === state.localId) continue;
+    for (const node of nodes) {
+      if (!node || !node.online) continue;
+      const isLocal = node.local === true || (!hasLocalFlag && node.id === state.localId);
+      if (isLocal) continue;
       const panels = Array.isArray(node.panels) ? node.panels : [];
       if (!panels.length) continue;
       const label = nodeLabel(node);
@@ -558,6 +573,21 @@
     return true;
   }
 
+  // The desktop asks for its entry list once at load. If this bridge was not
+  // installed in time - or the nodes payload was still empty - the synthetic
+  // entries never made it into the store. Detect that and request one refetch
+  // through the same domain event fnOS itself emits.
+  function ensureEntriesVisible() {
+    if (!state.mainSocket) return;
+    const store = state.appsStore;
+    if (store && Array.isArray(store.state.apps) && store.state.apps.some(isRemoteApp)) return;
+    ensureNodes().then(() => {
+      if (!state.mainSocket || !remoteEntries().length) return;
+      state.mainSocket.emit('domainEvent', { domainEvent: { event: 'user-desktop-entry-change', from: 'trim-sac' } });
+      console.log('[FnCluster] requested a desktop entry refresh for remote apps');
+    });
+  }
+
   // --- data polling ---
   async function poll() {
     try {
@@ -588,6 +618,7 @@
     const found = resolveExports(mod);
     state.api = found.api;
     state.main = isMainSocket(found.main) ? found.main : null;
+    state.appsStore = isAppsStore(found.apps) ? found.apps : null;
     if (!isUsrd(state.api)) {
       console.log('[FnCluster] desktop widget bridge disabled: usrd export not found');
       return;
@@ -602,6 +633,8 @@
     reportPanels();
     state.timer = setInterval(poll, POLL_MS);
     state.panelsTimer = setInterval(reportPanels, PANELS_REPORT_MS);
+    setTimeout(ensureEntriesVisible, 1500);
+    setTimeout(ensureEntriesVisible, 6000);
     window.addEventListener('resize', syncUI);
     window.__fnclusterWidgetDebug = {
       get state() {

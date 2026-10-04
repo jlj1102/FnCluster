@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -109,11 +110,32 @@ func (s *State) UpdateLocal(metrics Metrics) {
 	s.nodes[s.localID] = node
 }
 
+// isSyntheticPanel recognizes the desktop bridge's own all-apps entries. They
+// must never enter a catalog: the old bug fed them back through the report and
+// composed titles like "系统设置 · FN02 · FN01" on every sync round.
+func isSyntheticPanel(id string) bool {
+	return strings.HasPrefix(id, "fncluster:") || strings.HasPrefix(id, "fncluster.remote.")
+}
+
+func sanitizePanels(panels []PanelEntry) []PanelEntry {
+	if len(panels) == 0 {
+		return panels
+	}
+	out := make([]PanelEntry, 0, len(panels))
+	for _, panel := range panels {
+		if isSyntheticPanel(panel.ID) {
+			continue
+		}
+		out = append(out, panel)
+	}
+	return out
+}
+
 func (s *State) UpdateLocalPanels(panels []PanelEntry, source string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	node := s.nodes[s.localID]
-	node.Panels = append([]PanelEntry(nil), panels...)
+	node.Panels = append([]PanelEntry(nil), sanitizePanels(panels)...)
 	node.PanelsSource = source
 	s.nodes[s.localID] = node
 }
@@ -129,7 +151,7 @@ func (s *State) Panels() []PanelEntry {
 	defer s.mu.RUnlock()
 	panels := make([]PanelEntry, 0)
 	for _, node := range s.nodes {
-		panels = append(panels, node.Panels...)
+		panels = append(panels, sanitizePanels(node.Panels)...)
 	}
 	sort.Slice(panels, func(i, j int) bool {
 		if panels[i].NodeID != panels[j].NodeID {
@@ -145,6 +167,7 @@ func (s *State) Nodes() []Node {
 	defer s.mu.RUnlock()
 	out := make([]Node, 0, len(s.nodes))
 	for _, node := range s.nodes {
+		node.Panels = sanitizePanels(node.Panels)
 		out = append(out, node)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
@@ -163,6 +186,7 @@ func (s *State) UpsertRemote(node Node) {
 	if node.ID == "" || node.ID == s.localID {
 		return
 	}
+	node.Panels = sanitizePanels(node.Panels)
 	node.Online = true
 	node.LastSeen = time.Now().UTC()
 	s.nodes[node.ID] = node

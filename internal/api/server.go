@@ -43,7 +43,7 @@ func New(state *cluster.State, adminOps *admin.Admin, runtime *mesh.Runtime) htt
 	})
 	mux.HandleFunc("/api/v1/nodes", func(w http.ResponseWriter, r *http.Request) {
 		if getOnly(w, r) {
-			writeJSON(w, state.Nodes())
+			writeJSON(w, nodeViews(state))
 		}
 	})
 	mux.HandleFunc("/api/v1/nodes/", func(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +55,7 @@ func New(state *cluster.State, adminOps *admin.Admin, runtime *mesh.Runtime) htt
 			http.NotFound(w, r)
 			return
 		}
-		for _, node := range state.Nodes() {
+		for _, node := range nodeViews(state) {
 			if node.ID == id {
 				writeJSON(w, node)
 				return
@@ -114,6 +114,23 @@ func New(state *cluster.State, adminOps *admin.Admin, runtime *mesh.Runtime) htt
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// nodeView marks the local node so the desktop bridge never has to race mesh
+// state to tell local apps apart from remote ones.
+type nodeView struct {
+	cluster.Node
+	Local bool `json:"local,omitempty"`
+}
+
+func nodeViews(state *cluster.State) []nodeView {
+	localID := state.Local().ID
+	nodes := state.Nodes()
+	out := make([]nodeView, 0, len(nodes))
+	for _, node := range nodes {
+		out = append(out, nodeView{Node: node, Local: node.ID == localID})
+	}
+	return out
 }
 
 type meshStatusResponse struct {

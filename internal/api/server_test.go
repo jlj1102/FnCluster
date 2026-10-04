@@ -24,6 +24,9 @@ func TestReadOnlyAPI(t *testing.T) {
 	if response.Code != 200 || !strings.Contains(response.Body.String(), "stable-id") {
 		t.Fatalf("unexpected nodes response: %d %q", response.Code, response.Body.String())
 	}
+	if !strings.Contains(response.Body.String(), `"local":true`) {
+		t.Fatalf("nodes response does not mark the local node: %q", response.Body.String())
+	}
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/cluster", nil)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
