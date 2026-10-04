@@ -493,7 +493,10 @@
           fullUrl: path,
           microApp: false,
           nativeApp: false,
-          isDisplay: false,
+          // The launchpad renders `e.hiddenDesktopIcon ? null : ...` and AJe
+          // maps hiddenDesktopIcon = !isDisplay, so hidden entries never show;
+          // desktop icons still come from getUserDesktop, not this list.
+          isDisplay: true,
           status: 'available',
         });
         count += 1;

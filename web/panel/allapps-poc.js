@@ -10,8 +10,8 @@
         one trigger per second, just call it again after a moment.)
      4. Check: do the two probe entries render? Click one - it should open a
         native window pointing at /app/fncluster/?probe=N.
-     5. If they do not show, try __fnclusterAllApps.setDisplay(true) and repeat
-        step 3 (tests whether the all-apps page filters hiddenDesktopIcon).
+     5. __fnclusterAllApps.setDisplay(false) + refresh() confirms the launchpad
+        filter (hiddenDesktopIcon entries are skipped); setDisplay(true) restores.
      6. __fnclusterAllApps.disable() detaches the injection at runtime; the file
         itself changes nothing on disk. */
 (() => {
@@ -19,9 +19,9 @@
   const REQ = 'appcgi.sac.entry.v1.getEntryList';
   const PROBE_ICON = '/app-center-static/icon/fncluster/icon.png';
 
-  let displayFlag = false;
+  let displayFlag = true;
   let mainSocket = null;
-  const state = { socket: false, injections: 0, last: null, disabled: false, display: false };
+  const state = { socket: false, injections: 0, last: null, disabled: false, display: true };
 
   const isMainSocket = value => !!value && value.isMain === true && typeof value.useRes === 'function' && typeof value.send === 'function';
 
