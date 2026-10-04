@@ -450,7 +450,7 @@
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json', 'X-FnCluster': '1' },
-        body: JSON.stringify({ language, entries: reportable }),
+        body: JSON.stringify({ language, origin: window.location.origin, entries: reportable }),
       });
     } catch (_) {
       /* the catalog is best-effort; the scan fallback stays in place */
@@ -481,6 +481,35 @@
     return state.nodesPromise;
   }
 
+  // DIRECT mode: web applications open on the remote node itself (its browser
+  // origin + the app's own path); native panels have no URL and keep the
+  // FnCluster placeholder. xJe() builds from `uri` when `fullUrl` is skipped,
+  // so both are supplied for every entry.
+  function directPanelURL(node, panel) {
+    if (!node || !panel) return '';
+    if (panel.kind === 'external' && panel.externalUrl) return panel.externalUrl;
+    if (panel.kind === 'application' && panel.directUrl && node.webOrigin) {
+      const base = String(node.webOrigin).replace(/\/+$/, '');
+      const path = String(panel.directUrl);
+      return path.startsWith('/') ? `${base}${path}` : `${base}/${path}`;
+    }
+    return '';
+  }
+
+  function entryURI(target) {
+    try {
+      const parsed = new URL(target, window.location.href);
+      return {
+        protocol: parsed.protocol.replace(':', ''),
+        host: parsed.hostname,
+        port: parsed.port,
+        path: `${parsed.pathname}${parsed.search}${parsed.hash}`,
+      };
+    } catch (_) {
+      return { host: '', path: target, port: '', protocol: '' };
+    }
+  }
+
   function remoteEntries() {
     const nodes = state.nodes;
     const hasLocalFlag = nodes.some(node => node && node.local === true);
@@ -503,7 +532,8 @@
         // Poisoned catalogs (pre-0.2.3 feedback loop) may contain our own
         // synthetic keys; never treat them as real remote panels.
         if (!panel || !panel.id || String(panel.id).startsWith('fncluster:')) continue;
-        const path = `/app/fncluster/?node=${encodeURIComponent(node.id)}&panel=${encodeURIComponent(panel.id)}`;
+        const target = directPanelURL(node, panel)
+          || `/app/fncluster/?node=${encodeURIComponent(node.id)}&panel=${encodeURIComponent(panel.id)}`;
         const id = `${node.id}.${panel.id}`;
         entries.push({
           entryKey: `fncluster:${id}`,
@@ -516,8 +546,8 @@
           desc: `FnCluster remote ${panel.kind} panel on ${label}`,
           icon: REMOTE_ENTRY_ICON,
           type: 'iframe',
-          uri: { host: '', path, port: '', protocol: '' },
-          fullUrl: path,
+          uri: entryURI(target),
+          fullUrl: target,
           microApp: false,
           nativeApp: false,
           // The launchpad renders `e.hiddenDesktopIcon ? null : ...` and AJe

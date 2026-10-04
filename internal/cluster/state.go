@@ -61,6 +61,9 @@ type Node struct {
 	// PanelsSource is "desktop" for the localized list reported by the fnOS
 	// desktop page and "scan" for the filesystem fallback.
 	PanelsSource string `json:"panelsSource,omitempty"`
+	// WebOrigin is the browser origin the node's desktop was opened with
+	// (scheme://host:port). Remote panels use it for DIRECT links.
+	WebOrigin string `json:"webOrigin,omitempty"`
 }
 
 type Summary struct {
@@ -144,6 +147,14 @@ func (s *State) LocalPanelsSource() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.nodes[s.localID].PanelsSource
+}
+
+func (s *State) SetLocalWebOrigin(origin string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	node := s.nodes[s.localID]
+	node.WebOrigin = origin
+	s.nodes[s.localID] = node
 }
 
 func (s *State) Panels() []PanelEntry {

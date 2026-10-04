@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"fncluster/internal/cluster"
@@ -40,8 +41,31 @@ func mutationRequestLimit(w http.ResponseWriter, r *http.Request, body any, limi
 // appcgi.sac.entry.v1.getEntryList: the complete, localized entry list.
 // Field names follow the desktop bundle's entry shape.
 type panelsReport struct {
-	Language string               `json:"language"`
-	Entries  []panelsReportEntry  `json:"entries"`
+	Language string              `json:"language"`
+	Origin   string              `json:"origin"`
+	Entries  []panelsReportEntry `json:"entries"`
+}
+
+// normalizeWebOrigin keeps only a plain http(s) origin. Loopback origins are
+// dropped: a browser that opened its own node via 127.0.0.1 cannot tell remote
+// browsers anything useful (and must not become a relay target).
+func normalizeWebOrigin(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return ""
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return ""
+	}
+	switch strings.ToLower(parsed.Hostname()) {
+	case "localhost", "127.0.0.1", "::1":
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }
 
 type panelsReportEntry struct {
@@ -108,6 +132,9 @@ func (s *server) handlePanelsReport(w http.ResponseWriter, r *http.Request) {
 		panels = append(panels, panel)
 	}
 	s.state.UpdateLocalPanels(panels, "desktop")
+	if origin := normalizeWebOrigin(body.Origin); origin != "" {
+		s.state.SetLocalWebOrigin(origin)
+	}
 	s.admin.Audit("panels.report", fmt.Sprintf("language=%s entries=%d", body.Language, len(panels)), "ok")
 	writeJSON(w, map[string]any{"ok": true, "count": len(panels)})
 }

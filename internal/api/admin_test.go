@@ -78,6 +78,7 @@ func TestPanelsReportMapsLocalizedEntries(t *testing.T) {
 	handler, _ := testHandler(t)
 	body := `{
 	  "language": "zh-CN",
+	  "origin": "http://192.168.1.29:5666/",
 	  "entries": [
 	    {"entryKey":"app:trim.setting","appName":"trim.setting","title":"系统设置","type":"inbuilt","nativeApp":true,"isDisplay":true},
 	    {"entryKey":"app:trim.photos","appName":"trim.photos","title":"相册","type":"inbuilt","nativeApp":true,"isDisplay":true},
@@ -116,6 +117,29 @@ func TestPanelsReportMapsLocalizedEntries(t *testing.T) {
 	}
 	if strings.Contains(out, "fncluster.remote") || strings.Contains(out, "系统设置 · FN02") {
 		t.Fatalf("synthetic all-apps entry leaked into the catalog: %s", out)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/nodes", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if !strings.Contains(response.Body.String(), `"webOrigin":"http://192.168.1.29:5666"`) {
+		t.Fatalf("web origin was not stored: %s", response.Body.String())
+	}
+
+	// Loopback origins are useless to other nodes and must not overwrite it.
+	loopback := `{"language":"zh-CN","origin":"http://127.0.0.1:5666","entries":[{"entryKey":"entry:1","title":"X","isDisplay":true}]}`
+	request = httptest.NewRequest(http.MethodPost, "/api/v1/panels/report", strings.NewReader(loopback))
+	request.Header.Set("X-FnCluster", "1")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("loopback report returned %d", response.Code)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/api/v1/nodes", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if strings.Contains(response.Body.String(), "127.0.0.1") || !strings.Contains(response.Body.String(), `"webOrigin":"http://192.168.1.29:5666"`) {
+		t.Fatalf("loopback origin changed webOrigin: %s", response.Body.String())
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/panels/report", strings.NewReader(`{"entries":[{"entryKey":"x","title":"X"}]}`))
