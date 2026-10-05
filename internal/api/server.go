@@ -182,6 +182,7 @@ func (s *server) handleWebUIStatus(w http.ResponseWriter, r *http.Request) {
 		"auditLog":              filepath.Join(s.admin.DataDir, "audit.log"),
 		"compatible":            compatible,
 		"archive":               s.admin.WebUIArchive(),
+		"fndesk":                s.admin.FnDesk(),
 	})
 }
 

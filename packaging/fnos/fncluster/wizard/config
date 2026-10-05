@@ -9,14 +9,14 @@
         "initValue": "keep",
         "options": [
           { "label": "保持现状", "value": "keep" },
-          { "label": "启用集群状态角标", "value": "apply" },
+          { "label": "启用桌面集成", "value": "apply" },
           { "label": "恢复原始飞牛桌面", "value": "restore" }
         ],
         "rules": [{ "required": true, "message": "请选择一项" }]
       },
       {
         "type": "tips",
-        "helpText": "仅支持已验证的 fnOS 1.2.0701 页面。启用时会备份并检查桌面入口；失败会自动恢复。角标显示在线节点和独立存储容量之和。"
+        "helpText": "仅支持已验证的 fnOS 1.2.0701 页面。启用时会备份并检查桌面入口；失败会自动恢复。桌面角标显示在线节点和独立存储容量之和。"
       },
       {
         "type": "tips",

@@ -147,6 +147,15 @@ function renderWebUI(webui) {
   $('archive-hint').textContent = archive.path
     ? `fnOS 还原包：${archive.path}${archive.backedUp ? '（已备份原包，重启后仍生效）' : '（原包未备份）'}${emergency}`
     : 'fnOS 还原包：未同步（fnOS 可能还原补丁）';
+  const fndesk = webui.fndesk || {};
+  const fndeskHint = $('fndesk-hint');
+  if (fndesk.detected) {
+    const evidence = (fndesk.evidence || []).join('、');
+    fndeskHint.textContent = `检测到 FnDesk（${evidence}）：两者可共存（各自往 index.html 插入自己的 script），但需要用“兼容模式启用”；任一方的恢复或整包还原都会移除对方注入，需要重新启用。`;
+    fndeskHint.classList.remove('hidden');
+  } else {
+    fndeskHint.classList.add('hidden');
+  }
 }
 
 async function loadLogs() {
@@ -320,6 +329,13 @@ $('webui-enable').addEventListener('click', () => runAction(
   () => api('api/v1/webui/enable', { method: 'POST' }),
   '解除安全模式？仅在确认当前页面为受支持的 fnOS 版本后继续。'
 ));
+
+$('webui-badge-show').addEventListener('click', () => {
+  try { localStorage.removeItem('fncluster.badge.hidden'); } catch { /* ignore */ }
+  const button = $('webui-badge-show');
+  button.textContent = '已恢复，15 秒内出现';
+  setTimeout(() => { button.textContent = '显示桌面角标'; }, 2000);
+});
 
 $('log-refresh').addEventListener('click', loadLogs);
 $('log-source').addEventListener('change', loadLogs);

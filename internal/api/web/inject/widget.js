@@ -25,6 +25,9 @@
   const ENTRY_LIST_REQ = 'appcgi.sac.entry.v1.getEntryList';
   const REMOTE_ENTRY_LIMIT = 50; // per node
   const REMOTE_ENTRY_ICON = '/app-center-static/icon/fncluster/icon.png';
+  // Never inject these apps for remote nodes: opening a remote FnCluster from
+  // the local desktop is recursive and confusing.
+  const EXCLUDED_REMOTE_APPS = ['fncluster'];
 
   const state = {
     api: null,
@@ -516,6 +519,7 @@
   }
 
   const isLocalNode = (node, hasLocalFlag) => node.local === true || (!hasLocalFlag && node.id === state.localId);
+  const excludedRemotePanel = panel => !!panel && EXCLUDED_REMOTE_APPS.includes(panel.appName);
 
   // Relay sessions are minted in one batch and cached for ~11h; without them
   // relayable panels fall back to DIRECT URLs.
@@ -528,7 +532,9 @@
     for (const node of nodes) {
       if (!node || !node.online || isLocalNode(node, hasLocalFlag)) continue;
       for (const panel of Array.isArray(node.panels) ? node.panels : []) {
-        if (panel && panel.relayable && panel.appName) targets.push({ nodeId: node.id, appName: panel.appName });
+        if (panel && panel.relayable && panel.appName && !excludedRemotePanel(panel)) {
+          targets.push({ nodeId: node.id, appName: panel.appName });
+        }
       }
     }
     if (!targets.length) return;
@@ -581,6 +587,7 @@
         // Poisoned catalogs (pre-0.2.3 feedback loop) may contain our own
         // synthetic keys; never treat them as real remote panels.
         if (!panel || !panel.id || String(panel.id).startsWith('fncluster:')) continue;
+        if (excludedRemotePanel(panel)) continue;
         const relayURL = panel.relayable && panel.appName
           ? state.relayUrls.get(`${node.id}|${panel.appName}`)
           : '';

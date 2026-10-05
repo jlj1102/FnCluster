@@ -129,3 +129,40 @@ func TestResetIdentity(t *testing.T) {
 		t.Fatalf("still configured after reset: %+v %v", status, err)
 	}
 }
+
+func TestFnDeskDetection(t *testing.T) {
+	original := fnDeskAppDir
+	fnDeskAppDir = filepath.Join(t.TempDir(), "fndesk")
+	defer func() { fnDeskAppDir = original }()
+
+	dir := t.TempDir()
+	entry := filepath.Join(dir, "index.html")
+	if err := os.WriteFile(entry, []byte("<html><head></head><body><script src=\"./cqfndesk.js\"></script><div id=\"root\"></div></body></html>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cqfndesk_CQ.js"), []byte("// fndesk"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(fnDeskAppDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	adminOps := &Admin{Entry: entry}
+	status := adminOps.FnDesk()
+	if !status.Detected || len(status.Evidence) < 3 {
+		t.Fatalf("fndesk not detected: %+v", status)
+	}
+
+	if err := os.Remove(filepath.Join(dir, "cqfndesk_CQ.js")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(entry, []byte("<html><head></head><body><div id=\"root\"></div></body></html>"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(fnDeskAppDir); err != nil {
+		t.Fatal(err)
+	}
+	if status := adminOps.FnDesk(); status.Detected {
+		t.Fatalf("clean tree reported fndesk: %+v", status)
+	}
+}

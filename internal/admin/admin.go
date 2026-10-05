@@ -299,6 +299,47 @@ func (a *Admin) WebUICompatible() (bool, error) {
 	return webpatch.UnregisteredBuild(a.Entry)
 }
 
+// FnDeskStatus reports whether the third-party FnDesk WebUI patch is present.
+// Both projects only insert their own script tag, but either side's restore can
+// remove the other's injection, so the UI surfaces this before enabling.
+type FnDeskStatus struct {
+	Detected bool     `json:"detected"`
+	Evidence []string `json:"evidence,omitempty"`
+}
+
+// fnDeskAppDir is a test seam; FnDesk installs as a normal FPK.
+var fnDeskAppDir = "/var/apps/fndesk"
+
+func (a *Admin) FnDesk() FnDeskStatus {
+	var status FnDeskStatus
+	add := func(evidence string) {
+		for _, existing := range status.Evidence {
+			if existing == evidence {
+				return
+			}
+		}
+		status.Evidence = append(status.Evidence, evidence)
+	}
+	if info, err := os.Stat(fnDeskAppDir); err == nil && info.IsDir() {
+		add("app:" + fnDeskAppDir)
+	}
+	if matches, err := filepath.Glob(filepath.Join(filepath.Dir(a.Entry), "cqfndesk*.js")); err == nil {
+		for _, match := range matches {
+			add("file:" + filepath.Base(match))
+		}
+	}
+	if data, err := os.ReadFile(a.Entry); err == nil {
+		text := string(data)
+		for _, marker := range []string{"cqfndesk", "FN_LOGIN_FOOTER", "FN_MUSIC_", "FN_VISIT_"} {
+			if strings.Contains(text, marker) {
+				add("index:" + marker)
+			}
+		}
+	}
+	status.Detected = len(status.Evidence) > 0
+	return status
+}
+
 // WebUIArchive reports the fnOS restore archive recorded by the current patch.
 func (a *Admin) WebUIArchive() ArchiveStatus {
 	path, backedUp, emergency := webpatch.ArchiveState(a.DataDir)

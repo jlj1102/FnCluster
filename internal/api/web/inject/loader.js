@@ -3,6 +3,10 @@
   const endpoint = '/app/fncluster/api/v1/cluster';
   const id = 'fncluster-status';
   const storageId = 'fncluster-storage';
+  const hiddenKey = 'fncluster.badge.hidden';
+  const badgeHidden = () => {
+    try { return localStorage.getItem(hiddenKey) === '1'; } catch { return false; }
+  };
   // The bundle's own auth redirect (qUe) treats these routes as desktop-less.
   const publicPaths = ['/login', '/signin', '/system', '/sharing', '/reset-password', '/debug', '/404'];
   const publicPage = () => {
@@ -20,11 +24,15 @@
     if (!document.getElementById('fncluster-widget-script')) {
       const widget = document.createElement('script');
       widget.id = 'fncluster-widget-script';
-      widget.src = '/app/fncluster/inject/widget.js?v=0.2.8';
+      widget.src = '/app/fncluster/inject/widget.js?v=0.2.9';
       widget.defer = true;
       document.head.append(widget);
     }
     if (publicPage()) {
+      document.getElementById(id)?.remove();
+      return;
+    }
+    if (badgeHidden()) {
       document.getElementById(id)?.remove();
       return;
     }
@@ -42,6 +50,19 @@
       badge.type = 'button';
       badge.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483000;padding:8px 12px;border:0;border-radius:8px;background:#1476d4;color:white;box-shadow:0 2px 8px #0003;cursor:pointer';
       badge.addEventListener('click', () => window.open('/app/fncluster/', '_blank', 'noopener'));
+      const close = document.createElement('span');
+      close.className = 'fncluster-hide';
+      close.textContent = '×';
+      close.setAttribute('role', 'button');
+      close.setAttribute('aria-label', '隐藏角标');
+      close.style.cssText = 'position:absolute;top:-7px;right:-7px;width:16px;height:16px;line-height:14px;text-align:center;border-radius:50%;background:#5b6b7a;color:#fff;font-size:12px;cursor:pointer';
+      close.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        try { localStorage.setItem(hiddenKey, '1'); } catch { /* ignore */ }
+        badge.remove();
+      });
+      badge.append(close);
       document.body.append(badge);
     }
     let indicator = badge.querySelector('.fncluster-indicator');

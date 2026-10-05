@@ -64,14 +64,16 @@
       <article>
         <h3>飞牛桌面集成</h3>
         <p>状态：<strong id="webui-status">—</strong></p>
-        <p class="hint">仅支持已验证的 fnOS 1.2.0701 页面。启用与恢复会修改 /usr/trim/www/index.html；健康检查失败会自动回滚。未登录时网关会遮挡页面，启用后请在已登录的浏览器里确认角标。</p>
+        <p class="hint">仅支持已验证的 fnOS 1.2.0701 页面。启用与恢复会修改 /usr/trim/www/index.html；健康检查失败会自动回滚。未登录时网关会遮挡页面，启用后请在已登录的浏览器里确认桌面集成生效。</p>
         <p class="hint">审计日志：<code id="audit-path">—</code></p>
         <p class="hint" id="archive-hint">fnOS 还原包：—</p>
+        <p class="hint hidden" id="fndesk-hint"></p>
         <div class="row">
-          <button id="webui-apply" type="button">启用角标</button>
+          <button id="webui-apply" type="button">启用桌面集成</button>
           <button id="webui-apply-compatible" type="button" class="secondary hidden">兼容模式启用</button>
           <button id="webui-restore" type="button" class="danger">恢复原始桌面</button>
           <button id="webui-enable" type="button" class="secondary">解除安全模式</button>
+          <button id="webui-badge-show" type="button" class="secondary">显示桌面角标</button>
         </div>
       </article>
 
