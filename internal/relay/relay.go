@@ -151,6 +151,9 @@ type Server struct {
 	TTL      time.Duration
 	Sessions *Sessions
 	Ports    int
+
+	iconMu    sync.Mutex
+	iconCache map[string]iconEntry
 }
 
 // Serve runs until ctx is done. The portal serves /open/<token>; each origin

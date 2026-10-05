@@ -116,14 +116,16 @@ func (r *Runtime) start(parent context.Context, store *Store, cfg Config) error 
 	r.mu.Unlock()
 	handler := store.Handler(r.state.Local)
 	if relayHandler != nil {
-		outer := http.NewServeMux()
-		outer.Handle("/relay/", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		guarded := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if !store.authorized(req) {
 				http.Error(w, "mTLS member required", http.StatusForbidden)
 				return
 			}
 			relayHandler.ServeHTTP(w, req)
-		}))
+		})
+		outer := http.NewServeMux()
+		outer.Handle("/relay/", guarded)
+		outer.Handle("/icon/", guarded)
 		outer.Handle("/", handler)
 		handler = outer
 	}

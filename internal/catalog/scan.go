@@ -26,11 +26,13 @@ type uiURL struct {
 // binary (`/cgi/ThirdParty/<app>/index.cgi` style). The path is resolved
 // locally and never leaves the node.
 func relayTargetFor(base, entryURL string, item uiURL) (cluster.RelayTarget, bool) {
+	iconPath := iconFile(base, item.Icon)
 	if item.GatewaySocket != "" {
 		return cluster.RelayTarget{
-			Kind:   "socket",
-			Socket: filepath.Join(base, "target", filepath.Base(item.GatewaySocket)),
-			Prefix: strings.TrimSuffix(entryURL, "/"),
+			Kind:     "socket",
+			Socket:   filepath.Join(base, "target", filepath.Base(item.GatewaySocket)),
+			Prefix:   strings.TrimSuffix(entryURL, "/"),
+			IconPath: iconPath,
 		}, true
 	}
 	parsed, err := url.Parse(entryURL)
@@ -41,7 +43,22 @@ func relayTargetFor(base, entryURL string, item uiURL) (cluster.RelayTarget, boo
 	if info, statErr := os.Stat(cgiPath); statErr != nil || !info.Mode().IsRegular() {
 		return cluster.RelayTarget{}, false
 	}
-	return cluster.RelayTarget{Kind: "cgi", CGIPath: cgiPath, Prefix: path.Dir(parsed.Path)}, true
+	return cluster.RelayTarget{Kind: "cgi", CGIPath: cgiPath, Prefix: path.Dir(parsed.Path), IconPath: iconPath}, true
+}
+
+// iconFile resolves the ui/config icon pattern (images/icon_{0}.png) to the
+// 64px file inside the app directory; the relay composites it for remote
+// entries.
+func iconFile(base, pattern string) string {
+	if pattern == "" {
+		return ""
+	}
+	resolved := strings.ReplaceAll(pattern, "{0}", "64")
+	candidate := filepath.Join(base, "target", "ui", filepath.FromSlash(resolved))
+	if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+		return candidate
+	}
+	return ""
 }
 
 // localeRoot is a test seam; fnOS ships its UI translations under this tree.
@@ -146,8 +163,8 @@ func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, map[string]cl
 			files = "Files"
 		}
 		panels = append(panels,
-			cluster.PanelEntry{ID: "fnos.settings", NodeID: nodeID, Kind: "system", Title: settings, Native: true},
-			cluster.PanelEntry{ID: "fnos.files", NodeID: nodeID, Kind: "system", Title: files, Native: true})
+			cluster.PanelEntry{ID: "fnos.settings", NodeID: nodeID, Kind: "system", Title: settings, Native: true, AppName: "trim.setting"},
+			cluster.PanelEntry{ID: "fnos.files", NodeID: nodeID, Kind: "system", Title: files, Native: true, AppName: "trim.file-manager"})
 	}
 	sort.Slice(panels, func(i, j int) bool {
 		if panels[i].NodeID != panels[j].NodeID {

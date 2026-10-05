@@ -25,9 +25,10 @@
   const ENTRY_LIST_REQ = 'appcgi.sac.entry.v1.getEntryList';
   const REMOTE_ENTRY_LIMIT = 50; // per node
   const REMOTE_ENTRY_ICON = '/app-center-static/icon/fncluster/icon.png';
-  // Never inject these apps for remote nodes: opening a remote FnCluster from
-  // the local desktop is recursive and confusing.
-  const EXCLUDED_REMOTE_APPS = ['fncluster'];
+  // Remote entries never expose these: FnCluster itself (recursive) and the
+  // core Settings / App Center panels, which must stay local-only.
+  const EXCLUDED_REMOTE_APPS = ['fncluster', 'trim.setting', 'trim.app-center'];
+  const EXCLUDED_REMOTE_IDS = ['fnos.settings'];
 
   const state = {
     api: null,
@@ -519,7 +520,12 @@
   }
 
   const isLocalNode = (node, hasLocalFlag) => node.local === true || (!hasLocalFlag && node.id === state.localId);
-  const excludedRemotePanel = panel => !!panel && EXCLUDED_REMOTE_APPS.includes(panel.appName);
+  const excludedRemotePanel = panel => !!panel && (
+    EXCLUDED_REMOTE_APPS.includes(panel.appName) || EXCLUDED_REMOTE_IDS.includes(panel.id)
+  );
+  const remoteIconURL = (node, panel) => panel.appName
+    ? `/app/fncluster/api/v1/panels/icon/${encodeURIComponent(node.id)}/${encodeURIComponent(panel.appName)}`
+    : REMOTE_ENTRY_ICON;
 
   // Relay sessions are minted in one batch and cached for ~11h; without them
   // relayable panels fall back to DIRECT URLs.
@@ -591,9 +597,16 @@
         const relayURL = panel.relayable && panel.appName
           ? state.relayUrls.get(`${node.id}|${panel.appName}`)
           : '';
-        const target = relayURL
-          || directPanelURL(node, panel)
-          || `/app/fncluster/?node=${encodeURIComponent(node.id)}&panel=${encodeURIComponent(panel.id)}`;
+        let target = relayURL || directPanelURL(node, panel);
+        if (!target && panel.appName && node.webOrigin) {
+          // Native panels have no URL of their own: open the remote node's
+          // /appview deep link, which renders exactly that app window.
+          const origin = String(node.webOrigin).replace(/\/+$/, '');
+          target = `${origin}/appview?anchor=${encodeURIComponent(panel.appName)}`;
+        }
+        if (!target) {
+          target = `/app/fncluster/?node=${encodeURIComponent(node.id)}&panel=${encodeURIComponent(panel.id)}`;
+        }
         const id = `${node.id}.${panel.id}`;
         entries.push({
           entryKey: `fncluster:${id}`,
@@ -604,7 +617,7 @@
           entryName: `fncluster.remote.${id}`,
           title: `${panel.title} · ${label}`,
           desc: `FnCluster remote ${panel.kind} panel on ${label}`,
-          icon: REMOTE_ENTRY_ICON,
+          icon: remoteIconURL(node, panel),
           type: 'iframe',
           uri: entryURI(target),
           fullUrl: target,

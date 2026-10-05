@@ -71,6 +71,7 @@ func New(state *cluster.State, adminOps *admin.Admin, runtime *mesh.Runtime, rel
 		}
 	})
 	mux.HandleFunc("/api/v1/panels/report", s.handlePanelsReport)
+	mux.HandleFunc("/api/v1/panels/icon/", s.handlePanelIcon)
 	mux.HandleFunc("/api/v1/panels/", func(w http.ResponseWriter, r *http.Request) {
 		if !getOnly(w, r) {
 			return
@@ -204,6 +205,44 @@ func (s *server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		source = "service"
 	}
 	writeJSON(w, map[string]any{"source": source, "lines": tail})
+}
+
+// handlePanelIcon serves a remote panel's original icon composited with the
+// FnCluster badge. The desktop appends `?size=256`, which this path-based route
+// ignores.
+func (s *server) handlePanelIcon(w http.ResponseWriter, r *http.Request) {
+	if !getOnly(w, r) {
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/api/v1/panels/icon/")
+	nodeID, appName, ok := strings.Cut(rest, "/")
+	if !ok || nodeID == "" || !relay.ValidAppName(appName) {
+		http.NotFound(w, r)
+		return
+	}
+	if s.relay == nil {
+		writeError(w, http.StatusServiceUnavailable, "relay is not enabled")
+		return
+	}
+	localID := s.state.Local().ID
+	found := false
+	for _, node := range s.state.Nodes() {
+		if node.ID == nodeID && nodeID != localID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.NotFound(w, r)
+		return
+	}
+	data, err := s.relay.Icon(nodeID, appName)
+	if err != nil || len(data) == 0 {
+		data = relay.DefaultIcon()
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = w.Write(data)
 }
 
 func getOnly(w http.ResponseWriter, r *http.Request) bool {

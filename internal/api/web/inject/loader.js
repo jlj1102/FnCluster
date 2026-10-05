@@ -4,9 +4,36 @@
   const id = 'fncluster-status';
   const storageId = 'fncluster-storage';
   const hiddenKey = 'fncluster.badge.hidden';
-  const badgeHidden = () => {
-    try { return localStorage.getItem(hiddenKey) === '1'; } catch { return false; }
+  const collapsedKey = 'fncluster.badge.collapsed';
+  const tabId = 'fncluster-status-tab';
+  const flag = key => {
+    try { return localStorage.getItem(key) === '1'; } catch { return false; }
   };
+  const setFlag = (key, on) => {
+    try { on ? localStorage.setItem(key, '1') : localStorage.removeItem(key); } catch { /* ignore */ }
+  };
+  const removeControls = () => {
+    document.getElementById(id)?.remove();
+    document.getElementById(tabId)?.remove();
+  };
+  // Collapsed state: a slim tab on the right edge; clicking it expands again.
+  function showTab() {
+    document.getElementById(id)?.remove();
+    let tab = document.getElementById(tabId);
+    if (!tab) {
+      tab = document.createElement('button');
+      tab.id = tabId;
+      tab.type = 'button';
+      tab.textContent = '≺';
+      tab.setAttribute('aria-label', '展开 FnCluster 角标');
+      tab.style.cssText = 'position:fixed;right:0;top:45%;z-index:2147483000;width:18px;height:56px;border:0;border-radius:8px 0 0 8px;padding:0;background:#1476d4;color:#fff;font-size:12px;cursor:pointer;box-shadow:0 2px 8px #0003';
+      tab.addEventListener('click', () => {
+        setFlag(collapsedKey, false);
+        mount();
+      });
+      document.body.append(tab);
+    }
+  }
   // The bundle's own auth redirect (qUe) treats these routes as desktop-less.
   const publicPaths = ['/login', '/signin', '/system', '/sharing', '/reset-password', '/debug', '/404'];
   const publicPage = () => {
@@ -24,18 +51,19 @@
     if (!document.getElementById('fncluster-widget-script')) {
       const widget = document.createElement('script');
       widget.id = 'fncluster-widget-script';
-      widget.src = '/app/fncluster/inject/widget.js?v=0.2.9';
+      widget.src = '/app/fncluster/inject/widget.js?v=0.3.0';
       widget.defer = true;
       document.head.append(widget);
     }
-    if (publicPage()) {
-      document.getElementById(id)?.remove();
+    if (publicPage() || flag(hiddenKey) || !document.body) {
+      removeControls();
       return;
     }
-    if (badgeHidden()) {
-      document.getElementById(id)?.remove();
+    if (flag(collapsedKey)) {
+      showTab();
       return;
     }
+    document.getElementById(tabId)?.remove();
     let summary;
     try {
       const response = await fetch(endpoint, { credentials: 'same-origin' });
@@ -50,19 +78,32 @@
       badge.type = 'button';
       badge.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:2147483000;padding:8px 12px;border:0;border-radius:8px;background:#1476d4;color:white;box-shadow:0 2px 8px #0003;cursor:pointer';
       badge.addEventListener('click', () => window.open('/app/fncluster/', '_blank', 'noopener'));
+      const controlStyle = 'position:absolute;width:16px;height:16px;line-height:14px;text-align:center;border-radius:50%;background:#5b6b7a;color:#fff;font-size:12px;cursor:pointer';
       const close = document.createElement('span');
       close.className = 'fncluster-hide';
       close.textContent = '×';
       close.setAttribute('role', 'button');
       close.setAttribute('aria-label', '隐藏角标');
-      close.style.cssText = 'position:absolute;top:-7px;right:-7px;width:16px;height:16px;line-height:14px;text-align:center;border-radius:50%;background:#5b6b7a;color:#fff;font-size:12px;cursor:pointer';
+      close.style.cssText = `${controlStyle};top:-7px;right:-7px`;
       close.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
-        try { localStorage.setItem(hiddenKey, '1'); } catch { /* ignore */ }
-        badge.remove();
+        setFlag(hiddenKey, true);
+        removeControls();
       });
-      badge.append(close);
+      const collapse = document.createElement('span');
+      collapse.className = 'fncluster-collapse';
+      collapse.textContent = '›';
+      collapse.setAttribute('role', 'button');
+      collapse.setAttribute('aria-label', '收起角标');
+      collapse.style.cssText = `${controlStyle};top:-7px;left:-7px`;
+      collapse.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        setFlag(collapsedKey, true);
+        mount();
+      });
+      badge.append(close, collapse);
       document.body.append(badge);
     }
     let indicator = badge.querySelector('.fncluster-indicator');

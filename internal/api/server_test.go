@@ -57,6 +57,12 @@ func TestReadOnlyAPI(t *testing.T) {
 	if response.Code != 200 || !strings.Contains(response.Body.String(), "[") {
 		t.Fatalf("panels returned %d: %q", response.Code, response.Body.String())
 	}
+	request = httptest.NewRequest(http.MethodGet, "/app/fncluster/api/v1/panels/icon/node-a/tailscale", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("icon endpoint without relay returned %d", response.Code)
+	}
 	request = httptest.NewRequest(http.MethodGet, "/app/fncluster", nil)
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, request)

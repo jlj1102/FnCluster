@@ -330,12 +330,24 @@ $('webui-enable').addEventListener('click', () => runAction(
   '解除安全模式？仅在确认当前页面为受支持的 fnOS 版本后继续。'
 ));
 
+const badgeHiddenKey = 'fncluster.badge.hidden';
+
+function badgeHidden() {
+  try { return localStorage.getItem(badgeHiddenKey) === '1'; } catch { return false; }
+}
+
+function syncBadgeButton() {
+  $('webui-badge-show').textContent = badgeHidden() ? '显示桌面角标' : '隐藏桌面角标';
+}
+
 $('webui-badge-show').addEventListener('click', () => {
-  try { localStorage.removeItem('fncluster.badge.hidden'); } catch { /* ignore */ }
-  const button = $('webui-badge-show');
-  button.textContent = '已恢复，15 秒内出现';
-  setTimeout(() => { button.textContent = '显示桌面角标'; }, 2000);
+  try {
+    badgeHidden() ? localStorage.removeItem(badgeHiddenKey) : localStorage.setItem(badgeHiddenKey, '1');
+  } catch { /* ignore */ }
+  syncBadgeButton();
 });
+
+syncBadgeButton();
 
 $('log-refresh').addEventListener('click', loadLogs);
 $('log-source').addEventListener('change', loadLogs);

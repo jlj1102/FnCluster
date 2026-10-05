@@ -2,6 +2,11 @@ package relay
 
 import (
 	"bufio"
+	"bytes"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,6 +69,30 @@ func TestOriginHandlerRejectsForeignPort(t *testing.T) {
 	server.originHandler(6002).ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("foreign port returned %d", response.Code)
+	}
+}
+
+func TestCompositeIconAddsBadge(t *testing.T) {
+	base := image.NewRGBA(image.Rect(0, 0, 32, 32))
+	draw.Draw(base, base.Bounds(), image.NewUniform(color.RGBA{R: 10, G: 200, B: 10, A: 255}), image.Point{}, draw.Src)
+	var buffer bytes.Buffer
+	if err := png.Encode(&buffer, base); err != nil {
+		t.Fatal(err)
+	}
+	out, err := compositeIcon(buffer.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if img.Bounds().Dx() != iconSize || img.Bounds().Dy() != iconSize {
+		t.Fatalf("composited size = %v", img.Bounds())
+	}
+	r, _, _, _ := img.At(iconSize-2, iconSize-2).RGBA()
+	if r < 0xf000 {
+		t.Fatalf("badge corner not drawn: %v", r)
 	}
 }
 

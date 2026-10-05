@@ -33,14 +33,17 @@ func TestScanLocalizesSystemPanels(t *testing.T) {
 func TestScanMarksRelayTargets(t *testing.T) {
 	root := t.TempDir()
 	socketApp := filepath.Join(root, "fndesk")
-	if err := os.MkdirAll(filepath.Join(socketApp, "target", "ui"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(socketApp, "target", "ui", "images"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(socketApp, "manifest"), []byte("appname = fndesk\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	socketConfig := `{ ".url": { "fndesk.main": { "title":"Fndesk", "url":"/app/fndesk/", "gatewaySocket":"fndesk.sock" } } }`
+	socketConfig := `{ ".url": { "fndesk.main": { "title":"Fndesk", "icon":"images/icon_{0}.png", "url":"/app/fndesk/", "gatewaySocket":"fndesk.sock" } } }`
 	if err := os.WriteFile(filepath.Join(socketApp, "target", "ui", "config"), []byte(socketConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(socketApp, "target", "ui", "images", "icon_64.png"), []byte("png"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -77,6 +80,9 @@ func TestScanMarksRelayTargets(t *testing.T) {
 	}
 	if targets["tailscale"].Kind != "cgi" || targets["tailscale"].Prefix != "/cgi/ThirdParty/tailscale" {
 		t.Fatalf("cgi target wrong: %+v", targets["tailscale"])
+	}
+	if !strings.HasSuffix(targets["fndesk"].IconPath, filepath.Join("images", "icon_64.png")) {
+		t.Fatalf("icon path wrong: %+v", targets["fndesk"])
 	}
 }
 

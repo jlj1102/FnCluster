@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -44,7 +45,32 @@ func RemoteHandler(resolve func(string) (cluster.RelayTarget, bool)) http.Handle
 			http.Error(w, "unsupported relay target", http.StatusBadGateway)
 		}
 	})
+	mux.HandleFunc("/icon/", func(w http.ResponseWriter, r *http.Request) {
+		appName := strings.TrimPrefix(r.URL.Path, "/icon/")
+		if !ValidAppName(appName) {
+			http.NotFound(w, r)
+			return
+		}
+		target, ok := resolve(appName)
+		if !ok {
+			http.Error(w, "unknown relay target", http.StatusForbidden)
+			return
+		}
+		data := DefaultIcon()
+		if target.IconPath != "" {
+			if file, err := os.ReadFile(target.IconPath); err == nil && len(file) > 0 {
+				data = file
+			}
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(data)
+	})
 	return mux
+}
+
+// ValidAppName reports whether a relay app name is safe to route.
+func ValidAppName(name string) bool {
+	return appNamePattern.MatchString(name)
 }
 
 // proxySocket forwards to the app's local unix socket. The path is passed

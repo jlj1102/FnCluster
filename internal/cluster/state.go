@@ -36,10 +36,11 @@ type PanelEntry struct {
 // RelayTarget is resolved on the owning node only and never crosses the mesh:
 // a local unix socket or an app CGI binary the relay may proxy to.
 type RelayTarget struct {
-	Kind    string `json:"kind"` // "socket" or "cgi"
-	Socket  string `json:"socket,omitempty"`
-	CGIPath string `json:"cgiPath,omitempty"`
-	Prefix  string `json:"prefix,omitempty"`
+	Kind     string `json:"kind"` // "socket" or "cgi"
+	Socket   string `json:"socket,omitempty"`
+	CGIPath  string `json:"cgiPath,omitempty"`
+	Prefix   string `json:"prefix,omitempty"`
+	IconPath string `json:"iconPath,omitempty"`
 }
 
 type Rates struct {
