@@ -444,7 +444,7 @@
   // apps, FPK apps on any volume, external links). Report it to the agent so
   // the FnCluster UI and the remote panels can use it; best-effort only.
   async function reportPanels() {
-    if (state.panelsReporting) return;
+    if (state.panelsReporting || publicPage()) return;
     const api = state.api;
     if (!api || !api.entry || typeof api.entry.getEntryList !== 'function') return;
     state.panelsReporting = true;
@@ -682,7 +682,7 @@
   // entries never made it into the store. Detect that and request one refetch
   // through the same domain event fnOS itself emits.
   function ensureEntriesVisible() {
-    if (!state.mainSocket) return;
+    if (!state.mainSocket || publicPage()) return;
     const store = state.appsStore;
     if (store && Array.isArray(store.state.apps) && store.state.apps.some(isRemoteApp)) return;
     ensureNodes().then(() => {
@@ -711,8 +711,33 @@
     syncUI();
   }
 
-  async function setup() {
-    if (!document.querySelector(`script[src="${BUNDLE}"]`)) return; // verified build gate
+  // The fnOS SPA renders login/setup/share routes from the same index.html.
+  // Any fnOS API call there is unauthenticated, and the desktop's own main
+  // socket interceptor reacts to errno 65534 with location.reload(), which
+  // cancels an in-flight login submit. Stay completely inert until a real
+  // desktop route appears.
+  const publicPaths = ['/login', '/signin', '/system', '/sharing', '/reset-password', '/debug', '/404'];
+  const publicPage = () => {
+    const path = window.location.pathname.replace(/\/+$/, '') || '/';
+    return publicPaths.some(publicPath => path === publicPath || path.endsWith(publicPath));
+  };
+
+  async function waitForDesktop() {
+    console.log('[FnCluster] public page; waiting for a desktop route before enabling the bridge');
+    await new Promise(resolve => {
+      const check = () => {
+        if (publicPage()) return;
+        clearInterval(interval);
+        window.removeEventListener('popstate', check);
+        resolve();
+      };
+      const interval = setInterval(check, 1000);
+      window.addEventListener('popstate', check);
+    });
+    await start();
+  }
+
+  async function start() {
     let mod = null;
     try {
       mod = await import(BUNDLE);
@@ -759,6 +784,15 @@
       },
       refresh: () => poll(),
     };
+  }
+
+  async function setup() {
+    if (!document.querySelector(`script[src="${BUNDLE}"]`)) return; // verified build gate
+    if (publicPage()) {
+      await waitForDesktop();
+      return;
+    }
+    await start();
   }
 
   if (document.readyState === 'complete') setup();
