@@ -59,7 +59,7 @@ func TestOriginHandlerRejectsForeignPort(t *testing.T) {
 	}
 	server := &Server{TTL: time.Hour, Sessions: sessions}
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
-	request.AddCookie(&http.Cookie{Name: CookieName, Value: token})
+	request.AddCookie(&http.Cookie{Name: cookieName(6002), Value: token})
 	response := httptest.NewRecorder()
 	server.originHandler(6002).ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
@@ -83,7 +83,8 @@ func TestParseCGIHeaders(t *testing.T) {
 
 func TestStripRelayCookieKeepsAppCookies(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
-	request.AddCookie(&http.Cookie{Name: CookieName, Value: "secret"})
+	request.AddCookie(&http.Cookie{Name: cookieName(38673), Value: "one"})
+	request.AddCookie(&http.Cookie{Name: cookieName(38674), Value: "two"})
 	request.AddCookie(&http.Cookie{Name: "ts-session", Value: "app"})
 	stripRelayCookie(request)
 	cookies := request.Cookies()

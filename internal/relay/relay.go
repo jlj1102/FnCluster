@@ -26,8 +26,13 @@ import (
 	"fncluster/internal/mesh"
 )
 
-// CookieName carries the relay session for the root-path proxy.
-const CookieName = "fncluster_relay"
+// Cookies are host-scoped, not port-scoped, so every origin port uses its own
+// cookie name: two open apps can never overwrite each other's session.
+const cookiePrefix = "fncluster_relay_"
+
+func cookieName(port int) string {
+	return cookiePrefix + strconv.Itoa(port)
+}
 
 type session struct {
 	NodeID  string
@@ -249,7 +254,7 @@ func (s *Server) originHandler(port int) http.Handler {
 				return
 			}
 			http.SetCookie(w, &http.Cookie{
-				Name:     CookieName,
+				Name:     cookieName(port),
 				Value:    token,
 				Path:     "/",
 				HttpOnly: true,
@@ -259,7 +264,7 @@ func (s *Server) originHandler(port int) http.Handler {
 			http.Redirect(w, r, "/", http.StatusFound)
 			return
 		}
-		cookie, err := r.Cookie(CookieName)
+		cookie, err := r.Cookie(cookieName(port))
 		if err != nil {
 			http.Error(w, "relay session required", http.StatusUnauthorized)
 			return
@@ -318,7 +323,8 @@ func hostOnly(host string) string {
 }
 
 // stripRelayCookie keeps app cookies (which round-trip through the relay origin)
-// but never leaks our own session token to the remote app.
+// but never leaks our own session tokens to the remote app. Every origin port's
+// cookie shares the prefix, and all of them are dropped.
 func stripRelayCookie(req *http.Request) {
 	cookies := req.Cookies()
 	if len(cookies) == 0 {
@@ -326,7 +332,7 @@ func stripRelayCookie(req *http.Request) {
 	}
 	kept := make([]*http.Cookie, 0, len(cookies))
 	for _, cookie := range cookies {
-		if cookie.Name != CookieName {
+		if !strings.HasPrefix(cookie.Name, cookiePrefix) {
 			kept = append(kept, cookie)
 		}
 	}
