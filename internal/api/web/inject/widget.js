@@ -604,17 +604,13 @@
           ? state.relayUrls.get(`${node.id}|${panel.appName}`)
           : '';
         let target = relayURL;
-        let openInTab = false;
         if (!target && panel.kind === 'external') target = directPanelURL(node, panel);
         if (!target && panel.appName) {
           // The gateway relay tunnels the remote desktop same-site, so its
-          // cookies work. Open in a browser tab: a local task window would
-          // wrap the remote app's own native window in a second frame.
+          // cookies work. The relay page hides the remote appview window
+          // header, so the local task window is the only visible frame.
           const gatewayBase = state.relayUrls.get(`gateway:${node.id}`);
-          if (gatewayBase) {
-            target = `${gatewayBase}?anchor=${encodeURIComponent(panel.appName)}`;
-            openInTab = true;
-          }
+          if (gatewayBase) target = `${gatewayBase}?anchor=${encodeURIComponent(panel.appName)}`;
         }
         if (!target) target = directPanelURL(node, panel);
         if (!target && panel.appName && node.webOrigin) {
@@ -637,7 +633,7 @@
           title: `${panel.title} · ${label}`,
           desc: `FnCluster remote ${panel.kind} panel on ${label}`,
           icon: remoteIconURL(node, panel),
-          type: openInTab ? 'url' : 'iframe',
+          type: 'iframe',
           uri: entryURI(target),
           fullUrl: target,
           microApp: false,

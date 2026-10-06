@@ -162,11 +162,14 @@ func TestRemoteIconServesSystemIcon(t *testing.T) {
 func TestInjectShim(t *testing.T) {
 	body := []byte("<html><head><title>x</title></head><body></body></html>")
 	out := string(injectShim(body, "fncluster-192.168.1.27-"))
-	if !strings.Contains(out, "<head><script>") || !strings.Contains(out, "fncluster-192.168.1.27-") {
+	if !strings.Contains(out, "<head><style>") || !strings.Contains(out, "fncluster-192.168.1.27-") {
 		t.Fatalf("shim not injected: %s", out)
 	}
 	if !strings.Contains(out, "fncluster_relay_anchor") || !strings.Contains(out, "mod.wa") {
 		t.Fatalf("anchor bootstrap missing: %s", out)
+	}
+	if !strings.Contains(out, "fncluster-appview") || !strings.Contains(out, "syncAppview") {
+		t.Fatalf("appview header style missing: %s", out)
 	}
 	if string(injectShim(body, "")) != string(body) {
 		t.Fatal("empty prefix must not change the body")

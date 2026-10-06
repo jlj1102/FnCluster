@@ -168,7 +168,7 @@ func injectShim(body []byte, prefix string) []byte {
 	if prefix == "" {
 		return body
 	}
-	script := []byte("<script>" + shimScript(prefix) + "</script>")
+	script := []byte("<style>" + appviewStyle + "</style><script>" + shimScript(prefix) + "</script>")
 	lower := bytes.ToLower(body)
 	if index := bytes.Index(lower, []byte("<head>")); index >= 0 {
 		at := index + len("<head>")
@@ -176,6 +176,11 @@ func injectShim(body []byte, prefix string) []byte {
 	}
 	return append(script, body...)
 }
+
+// appviewStyle hides the tunneled appview's own window header. The local
+// task window already provides the only visible title bar; the class is set
+// by shimScript only while the relay page is on the /appview route.
+const appviewStyle = `.fncluster-appview .trim-ui__app-layout--header{display:none!important}`
 
 func shimScript(prefix string) string {
 	quoted, err := json.Marshal(prefix)
@@ -223,6 +228,10 @@ func shimScript(prefix string) string {
   // resource polling initializes the timer socket that iframe micro-apps
   // query through. Once mod.wa.getSocket() exists, switch to the app.
   try{
+    var isAppview=function(){return location.pathname.replace(/\/+$/,'')==='/appview'};
+    var syncAppview=function(){document.documentElement.classList.toggle('fncluster-appview',isAppview())};
+    addEventListener('popstate',syncAppview);
+    syncAppview();
     if(location.pathname.indexOf('/apps/')!==0){
       var anchor=null,pending=null,params=new URLSearchParams(location.search);
       try{ pending=sessionStorage.getItem('fncluster.relay.anchor'); }catch(e){}
@@ -231,14 +240,14 @@ func shimScript(prefix string) string {
         params.delete('fncluster_relay_anchor');
         var rest=params.toString();
         history.replaceState(history.state,'',location.pathname+(rest?'?'+rest:'')+location.hash);
-      } else if(location.pathname==='/appview'){
+      } else if(isAppview()){
         anchor=params.get('anchor');
       } else if(pending){
         anchor=pending;
       }
       if(anchor){
         try{ sessionStorage.setItem('fncluster.relay.anchor',anchor); }catch(e){}
-        if(location.pathname==='/appview'){
+        if(isAppview()){
           location.replace('/?fncluster_relay_anchor='+encodeURIComponent(anchor));
         } else {
           var attempts=0;
