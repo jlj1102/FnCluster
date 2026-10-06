@@ -230,9 +230,7 @@ body {
   line-height: 32px;
 }
 
-.stat small,
-.hint,
-.note {
+.hint {
   display: block;
   color: var(--text-2);
   font-size: 12px;
@@ -243,10 +241,6 @@ body {
 .hint.inline {
   display: inline;
   margin: 0;
-}
-
-.note {
-  margin-top: 4px;
 }
 
 .error {

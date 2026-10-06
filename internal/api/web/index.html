@@ -36,7 +36,7 @@
         <img src="icon.png" alt="" class="brand-icon">
         <div class="brand-text">
           <strong>FnCluster</strong>
-          <span id="status" class="status-pill">连接中…</span>
+          <span id="status" class="status-pill">加载中…</span>
         </div>
       </div>
       <nav class="nav" id="fncluster-nav" aria-label="FnCluster 导航">
@@ -47,13 +47,13 @@
         <button class="nav-item" data-view="logs" type="button">日志</button>
         <button class="nav-item" data-view="about" type="button">关于</button>
       </nav>
-      <p class="sidebar-foot">多节点 fnOS 扩展<br>存储为聚合统计，非共享存储池</p>
+      <p class="sidebar-foot">多节点 fnOS 扩展</p>
     </aside>
 
     <main class="content">
       <header class="content-head">
         <h1 id="view-title">总览</h1>
-        <p id="view-desc">集群状态与总容量</p>
+        <p id="view-desc">集群状态与容量</p>
       </header>
 
       <section class="view" data-view="overview">
@@ -65,14 +65,12 @@
           <article class="card stat">
             <h3>集群总存储</h3>
             <strong id="storage">—</strong>
-            <small>在线节点容量之和，并非共享存储池</small>
           </article>
         </div>
       </section>
 
       <section class="view hidden" data-view="nodes">
         <div id="node-list" class="node-list" aria-live="polite"></div>
-        <p class="note">应用和系统面板目录仅显示发现结果；远端原生面板仍在验证独立会话方案。</p>
       </section>
 
       <section class="view hidden" data-view="cluster">
@@ -84,7 +82,7 @@
         <article class="card" id="mesh-setup-card">
           <h2>创建新集群</h2>
           <div class="field">
-            <label for="mesh-address">本机地址（用于节点间连接）</label>
+            <label for="mesh-address">本机地址</label>
             <select id="mesh-address"></select>
           </div>
           <div class="actions">
@@ -95,18 +93,18 @@
         <article class="card" id="mesh-join-card">
           <h2>加入现有集群</h2>
           <div class="field">
-            <label for="mesh-seed">种子节点 IP:端口</label>
+            <label for="mesh-seed">种子节点地址</label>
             <input id="mesh-seed" placeholder="192.168.1.10:38671" autocomplete="off">
           </div>
           <div class="field">
-            <label for="mesh-code">配对码（由种子节点生成）</label>
+            <label for="mesh-code">配对码</label>
             <textarea id="mesh-code" rows="2" placeholder="粘贴配对码" autocomplete="off"></textarea>
           </div>
           <div class="field">
-            <label for="mesh-address-join">本机地址（用于节点间连接）</label>
+            <label for="mesh-address-join">本机地址</label>
             <select id="mesh-address-join"></select>
           </div>
-          <p class="hint">配对码一次性、15 分钟有效；重新加入前需要在创建者处重新生成。</p>
+          <p class="hint">15 分钟内有效，仅能使用一次。</p>
           <div class="actions">
             <button id="mesh-join-btn" type="button" class="primary">加入集群</button>
           </div>
@@ -114,8 +112,8 @@
 
         <article class="card hidden" id="mesh-token-card">
           <h2>配对码</h2>
-          <p class="hint">在另一台节点的 FnCluster 页面填写本机 IP 与这段配对码即可加入。15 分钟内有效，只能使用一次。</p>
-          <textarea id="mesh-code-out" rows="2" readonly placeholder="点击下方按钮生成"></textarea>
+          <p class="hint">把它和本机地址填到另一台节点即可加入。</p>
+          <textarea id="mesh-code-out" rows="2" readonly placeholder="尚未生成"></textarea>
           <div class="actions">
             <button id="mesh-token-btn" type="button" class="primary">生成配对码</button>
             <button id="mesh-copy" type="button" class="secondary">复制</button>
@@ -138,9 +136,9 @@
         <article class="card">
           <h2>飞牛桌面集成</h2>
           <p>状态：<strong id="webui-status">—</strong></p>
-          <p class="hint">仅支持已验证的 fnOS 1.2.0701 页面。启用与恢复会修改 /usr/trim/www/index.html；健康检查失败会自动回滚。未登录时网关会遮挡页面，启用后请在已登录的浏览器里确认桌面集成生效。</p>
+          <p class="hint" title="启用与恢复会修改 /usr/trim/www/index.html；健康检查失败自动回滚；未登录时网关会遮挡页面。">启用会修改飞牛桌面文件，失败自动回滚。</p>
           <p class="hint">审计日志：<code id="audit-path">—</code></p>
-          <p class="hint" id="archive-hint">fnOS 还原包：—</p>
+          <p class="hint" id="archive-hint">还原包：—</p>
           <p class="hint hidden" id="fndesk-hint"></p>
           <div class="actions">
             <button id="webui-apply" type="button" class="primary">启用桌面集成</button>
@@ -171,12 +169,12 @@
       <section class="view hidden" data-view="about">
         <article class="card">
           <h2>关于 FnCluster</h2>
-          <p class="hint">FnCluster 把多台 fnOS 组织成一个可统一查看的环境：节点健康、存储统计、应用目录与远端桌面。集群身份独立于 fnOS 用户身份，节点之间使用 mTLS。</p>
-          <p class="hint">安全边界：本地网关登录 + 集群 mTLS；中继只拨本机回环与已声明端口；所有集群操作写入审计日志。</p>
+          <p class="hint">FnCluster 把多台飞牛组成一个统一环境：节点状态、存储统计、应用目录和远端桌面。节点间使用 mTLS，集群身份独立于飞牛账号。</p>
+          <p class="hint">应用与面板目录来自自动发现。所有集群操作写入审计日志。</p>
         </article>
         <article class="card">
           <h2>高级 / 调试</h2>
-          <p class="hint">重置节点身份会删除本机的集群状态与节点 ID，用于节点被移除后卡住或调试。创建者上仍保留旧成员记录，需要在那里移除；其他节点的数据和存储不受影响。</p>
+          <p class="hint">重置节点身份会删除本机的集群状态与节点 ID，其他节点的数据不受影响。</p>
           <div class="actions">
             <button id="mesh-reset" type="button" class="danger">重置节点身份</button>
           </div>

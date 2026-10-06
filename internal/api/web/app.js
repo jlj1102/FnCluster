@@ -56,11 +56,11 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) appl
 /* ---------- navigation ---------- */
 
 const views = {
-  overview: ['总览', '集群状态与总容量'],
-  nodes: ['节点', '节点健康、存储与发现的应用目录'],
-  cluster: ['集群', '创建、加入、配对与成员管理'],
-  integration: ['桌面集成', 'fnOS WebUI 注入与恢复'],
-  logs: ['日志', '服务日志与审计日志'],
+  overview: ['总览', '集群状态与容量'],
+  nodes: ['节点', '各节点状态、存储与应用'],
+  cluster: ['集群', '组建与管理集群'],
+  integration: ['桌面集成', '把 FnCluster 放进飞牛桌面'],
+  logs: ['日志', '服务与审计日志'],
   about: ['关于', '说明与高级操作'],
 };
 
@@ -217,42 +217,53 @@ function renderMesh(mesh) {
   const leave = $('mesh-leave');
   leave.disabled = !configured || Boolean(mesh.isController);
   $('mesh-leave-hint').textContent = !configured
-    ? '当前未加入集群。'
+    ? '未加入集群'
     : mesh.isController
-      ? '创建者不能退出；解散集群未实现（可手动删除 mesh.json 或先移除其他成员）。'
+      ? '创建者不能退出（解散集群未实现）'
       : '';
 
   if (!configured) {
     memberSignature = '';
     renderMembers({ ...mesh, members: {}, revoked: {} });
-    $('mesh-status').textContent = '本机尚未加入集群：可以创建新集群，或使用另一台生成的配对码加入。';
+    $('mesh-status').textContent = '尚未加入集群。';
     return;
   }
   if (mesh.localRevoked) {
-    $('mesh-status').textContent = `本机已被集群创建者移除（节点 ${short(mesh.nodeId)}）。重新加入：在创建者处生成新配对码 → 在“关于”里重置节点身份 → 用新配对码加入。`;
+    $('mesh-status').textContent = '本机已被移出集群。请到创建者处生成新配对码，再到「关于」重置节点身份后重新加入。';
     $('mesh-status').classList.add('error');
     renderMembers(mesh);
     return;
   }
   const running = mesh.running ? `运行中 ${mesh.listen || ''}` : '未运行';
-  $('mesh-status').textContent = `集群 ${short(mesh.clusterId)} · 本节点 ${short(mesh.nodeId)} · 控制器 ${short(mesh.controllerId)} · mTLS ${running}`;
+  $('mesh-status').textContent = `集群 ${short(mesh.clusterId)} · 本节点 ${short(mesh.nodeId)} · 控制器 ${short(mesh.controllerId)} · ${running}`;
+  $('mesh-status').title = '节点间连接使用 mTLS。';
   renderMembers(mesh);
 }
 
+const webuiStatusText = {
+  PATCHED: '已启用',
+  UNPATCHED: '未启用',
+  SAFE_MODE: '安全模式',
+  BROKEN: '注入异常',
+  OUTDATED: '飞牛已更新，需重新启用',
+  UNSUPPORTED: '版本不匹配',
+};
+
 function renderWebUI(webui) {
+  const state = webuiStatusText[webui.status] || webui.status;
   const suffix = webui.integrationConfigured ? '' : '（未配置注入路径）';
-  $('webui-status').textContent = `${webui.status}${suffix}${webui.compatible ? ' · 未登记版本，可兼容模式启用' : ''}`;
+  $('webui-status').textContent = `${state}${suffix}${webui.compatible ? ' · 未登记版本，可兼容模式启用' : ''}`;
   setHidden($('webui-apply-compatible'), !webui.compatible);
   $('audit-path').textContent = webui.auditLog || '—';
   const archive = webui.archive || {};
   const emergency = archive.emergency ? ' · 应急备份已就位' : '';
   $('archive-hint').textContent = archive.path
-    ? `fnOS 还原包：${archive.path}${archive.backedUp ? '（已备份原包，重启后仍生效）' : '（原包未备份）'}${emergency}`
-    : 'fnOS 还原包：未同步（fnOS 可能还原补丁）';
+    ? `还原包：${archive.path}${archive.backedUp ? '（已备份，重启后仍生效）' : '（未备份）'}${emergency}`
+    : '还原包未同步，飞牛更新可能覆盖补丁';
   const fndesk = webui.fndesk || {};
   if (fndesk.detected) {
-    const evidence = (fndesk.evidence || []).join('、');
-    $('fndesk-hint').textContent = `检测到 FnDesk（${evidence}）：两者可共存（各自往 index.html 插入自己的 script），但需要用“兼容模式启用”；任一方的恢复或整包还原都会移除对方注入，需要重新启用。`;
+    $('fndesk-hint').textContent = '检测到 FnDesk：用兼容模式启用可与它共存。';
+    $('fndesk-hint').title = (fndesk.evidence || []).join('、');
   }
   setHidden($('fndesk-hint'), !fndesk.detected);
 }
@@ -264,12 +275,12 @@ async function loadLogs() {
     const lines = data.lines || [];
     $('log-output').textContent = lines.length ? lines.join('\n') : '暂无日志';
   } catch (error) {
-    $('log-output').textContent = `日志读取失败：${error.message}`;
+    $('log-output').textContent = `读取失败：${error.message}`;
   }
 }
 
 async function removeNode(id) {
-  if (!confirm(`确定移除节点 ${id}？其证书将立即失效，且不能再用同一节点 ID 加入。`)) return;
+  if (!confirm(`移除 ${id}？它的证书会立即失效。`)) return;
   try {
     await api('api/v1/mesh/remove', { method: 'POST', body: { nodeId: id } });
     await refresh();
@@ -288,7 +299,7 @@ async function refresh() {
     if (!clusterResponse.ok || !nodesResponse.ok) throw new Error('API 请求失败');
     const cluster = await clusterResponse.json();
     const nodes = await nodesResponse.json();
-    $('status').textContent = cluster.status === 'healthy' ? '运行正常' : '节点异常';
+    $('status').textContent = cluster.status === 'healthy' ? '运行正常' : '有节点离线';
     $('status').classList.toggle('error', cluster.status !== 'healthy');
     $('nodes').textContent = `${cluster.nodes.online} / ${cluster.nodes.total}`;
     $('storage').textContent = cluster.storage.totalBytes
@@ -305,17 +316,17 @@ async function refresh() {
       const metrics = document.createElement('p');
       metrics.textContent = node.metrics.collectedAt
         ? `CPU ${node.metrics.cpuPercent == null ? '—' : `${node.metrics.cpuPercent.toFixed(1)}%`} · 内存 ${bytes(node.metrics.memoryUsedBytes)} / ${bytes(node.metrics.memoryTotalBytes)} · 负载 ${(node.metrics.load || []).map(n => n.toFixed(2)).join(' / ')} · 运行 ${uptime(node.metrics.uptimeSeconds)}`
-        : '等待 Linux 指标';
+        : '指标加载中…';
       const volumes = document.createElement('p');
       const filesystems = node.metrics.filesystems || [];
       volumes.textContent = filesystems.length
-        ? `本节点存储：${filesystems.map(fs => `${fs.mount} ${bytes(fs.usedBytes)} / ${bytes(fs.totalBytes)}`).join(' · ')}`
-        : '本节点存储：未发现 fnOS 数据卷';
+        ? filesystems.map(fs => `${fs.mount} ${bytes(fs.usedBytes)} / ${bytes(fs.totalBytes)}`).join(' · ')
+        : '未发现数据卷';
       const network = document.createElement('p');
       const counters = Object.entries(node.metrics.network || {}).filter(([name]) => name !== 'lo');
       const rx = counters.reduce((sum, [, item]) => sum + (item.receiveBytes || 0), 0);
       const tx = counters.reduce((sum, [, item]) => sum + (item.transmitBytes || 0), 0);
-      network.textContent = counters.length ? `网络累计：接收 ${bytes(rx)} · 发送 ${bytes(tx)}` : '网络：暂无数据';
+      network.textContent = counters.length ? `网络累计：接收 ${bytes(rx)} · 发送 ${bytes(tx)}` : '暂无网络数据';
       const panels = document.createElement('div');
       panels.className = 'panels';
       const panelList = node.panels || [];
@@ -339,11 +350,11 @@ async function refresh() {
         panels.append(line);
       }
       if (!panels.children.length) {
-        panels.textContent = '应用与面板：未发现';
+        panels.textContent = '未发现应用';
       } else if (node.panelsSource === 'scan') {
         const hint = document.createElement('div');
         hint.className = 'panel-hint';
-        hint.textContent = '扫描兜底列表；打开该节点桌面后会自动换成完整本地化列表。';
+        hint.textContent = '来自扫描，打开该节点桌面后更完整';
         panels.append(hint);
       }
       card.append(title, info, metrics, volumes, network, panels);
@@ -400,37 +411,37 @@ $('mesh-join-btn').addEventListener('click', () => {
 $('mesh-leave').addEventListener('click', () => runAction(
   $('mesh-leave'),
   () => api('api/v1/mesh/leave', { method: 'POST' }),
-  '确定退出集群？本机将断开与其他节点的连接。'
+  '退出集群？本机会断开与其他节点的连接。'
 ));
 
 $('mesh-reset').addEventListener('click', () => runAction(
   $('mesh-reset'),
   () => api('api/v1/mesh/reset-identity', { method: 'POST' }),
-  '重置节点身份？将删除本机 mesh.json 与 node-id。创建者上仍保留旧成员记录，需要在那里移除；其他节点的数据和存储不受影响。'
+  '重置节点身份？会删除本机的集群状态与节点 ID。'
 ));
 
 $('webui-apply').addEventListener('click', () => runAction(
   $('webui-apply'),
   () => api('api/v1/webui/apply', { method: 'POST' }),
-  '启用飞牛桌面集成？将备份并修改 /usr/trim/www/index.html，健康检查失败会自动恢复。'
+  '启用桌面集成？会备份并修改飞牛桌面文件，失败自动回滚。'
 ));
 
 $('webui-apply-compatible').addEventListener('click', () => runAction(
   $('webui-apply-compatible'),
   () => api('api/v1/webui/apply', { method: 'POST', body: { compatible: true } }),
-  '当前页面不是已登记的 fnOS 版本。\n\n兼容模式会在结构校验（唯一的 </head> 与 <div id="root">）通过后修改 /usr/trim/www/index.html。仍然会备份原文件、健康检查，失败自动恢复。\n\n确定继续？'
+  '当前不是已登记版本。继续以兼容模式启用？失败会自动回滚。'
 ));
 
 $('webui-restore').addEventListener('click', () => runAction(
   $('webui-restore'),
   () => api('api/v1/webui/restore', { method: 'POST' }),
-  '恢复原始飞牛桌面？将移除 FnCluster 注入并进入安全模式。'
+  '恢复原始桌面？会移除注入并进入安全模式。'
 ));
 
 $('webui-enable').addEventListener('click', () => runAction(
   $('webui-enable'),
   () => api('api/v1/webui/enable', { method: 'POST' }),
-  '解除安全模式？仅在确认当前页面为受支持的 fnOS 版本后继续。'
+  '解除安全模式？请确认当前飞牛版本受支持。'
 ));
 
 const badgeHiddenKey = 'fncluster.badge.hidden';
