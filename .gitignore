@@ -8,3 +8,10 @@ packaging/fnos/fncluster/app/server/fncluster
 packaging/fnos/fncluster/*.fpk
 packaging/fnos/*.fpk
 fncluster.fpk
+tools/
+
+# internal docs stay local; the public repo keeps README.md and CHANGELOG.md
+docs/
+AGENTS.md
+FNOS_WEBUI_REVERSE_ENGINEERING.md
+packaging/fnos/README.md

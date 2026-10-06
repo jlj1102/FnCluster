@@ -1,50 +1,59 @@
 # FnCluster
 
-Go agent framework for independent fnOS nodes. The current build supports one-time node join, mTLS health exchange, stable node identity, Linux metrics, aggregate capacity statistics, FPK application discovery, a read-only management page and recoverable WebUI loader patching. Remote fnOS native panels are still experimental.
+FnCluster 把多台飞牛 fnOS 组成一个统一的环境：在一台机器上查看所有节点的状态、存储统计、应用目录，并能直接打开远端节点上的应用和整台桌面。每台节点仍然是独立的 fnOS 安装，集群只做管理与转发。
 
-## Run
+## 安装与升级
+
+- 从 Releases 下载 `fncluster.fpk`（x86）或 `fncluster-arm.fpk`（arm），在飞牛「应用中心 → 手动安装」；升级用同一个入口。
+- 夜构建在 Releases 的 `nightly` 预发布里，版本形如 `0.4.4-nightly.abc123`。
+- 安装后桌面会出现 FnCluster 应用，打开即是管理页面。
+
+## 开始使用
+
+1. 在任意一台节点打开 FnCluster 应用。
+2. 第一台：进入「集群 → 创建新集群」，选择本机地址并创建；再点「生成配对码」。
+3. 其它节点：进入「集群 → 加入现有集群」，填写种子节点地址（IP:端口）和配对码，点「加入集群」。
+4. 完成后到「总览 / 节点」查看状态。节点间连接立即生效，无需重启服务。
+
+集群身份独立于飞牛账号，节点间通信默认使用 `38671` 端口与 mTLS。创建者可以移除成员，成员可以退出集群。
+
+## 桌面集成
+
+- 「桌面集成」页可以把 FnCluster 注入飞牛桌面：桌面角标显示在线节点数，全部应用里出现远端节点条目。
+- 仅支持已验证的 fnOS 版本；未登记版本可用「兼容模式启用」。
+- 启用会备份并修改飞牛桌面文件，健康检查失败自动回滚；「恢复原始桌面」随时还原。
+- 角标可在页面上显示或隐藏。
+
+## 远端应用与远端桌面
+
+- 各节点发现的应用会以「应用名 · 节点名」出现在「全部应用」里，点击后通过集群中继打开，不需要在浏览器里直连远端。
+- 每个在线节点还有「远端桌面 · 节点名」入口，可在窗口里使用设置、应用中心等完整桌面。
+- 支持的应用形态：网关托管应用、Unix socket、CGI、自带回环端口的应用（含端口在运行设置里配置的应用）。
+
+## 日志与恢复
+
+- 页面「日志」可查看服务日志与审计日志。
+- 恢复原始飞牛桌面（命令行，不依赖页面）：
+
+```bash
+/var/apps/fncluster/target/server/fncluster recover webui
+```
+
+- 补丁状态：`/var/apps/fncluster/target/server/fncluster webui status`。
+
+## 从源码构建
 
 ```bash
 go build -o fncluster ./cmd/fncluster
-./fncluster serve --data-dir ./state --storage-mount /vol1
+
+# Windows 上打包 FPK（需要 fnpack，可在 CI 使用的官方 Windows 版）
+./packaging/fnos/build.ps1 -Arch amd64
+./packaging/fnos/build.ps1 -Arch arm64
+./packaging/fnos/build.ps1 -Arch amd64 -FnpackPath /path/to/fnpack.exe
 ```
 
-Open `http://127.0.0.1:38670/` on the host or through an SSH tunnel. By default the Linux collector discovers fnOS `/volN` mounts and deduplicates them by filesystem device. Repeat `--storage-mount` to override discovery with explicit mounts. **Cluster Storage** is only a sum of independent filesystems.
+## 安全边界
 
-The TCP HTTP API only accepts loopback listeners until fnOS user authorization and reverse proxy integration are verified. Its read routes include `GET /healthz`, `/api/v1/cluster`, `/api/v1/nodes`, `/api/v1/nodes/{id}`, `/api/v1/storage/summary`, and `/api/v1/panels`. There is no shell endpoint. The FPK provides the same API over a local Unix socket through the fnOS application gateway, where the browser management page can also create/join a cluster and manage WebUI integration.
-
-## Join nodes
-
-Use the FnCluster desktop page on each node: create a cluster, generate a one-time pairing code (`token.fingerprint`), then paste it with the seed address on the other node. The mesh listener starts automatically within seconds; no service restart is needed. The separate node transport uses port `38671` and never reuses fnOS WebSocket credentials. The same CLI works (`cluster init|token|join|remove|leave|status`). The cluster creator can revoke a member; members can leave. See [docs/CLUSTER_JOIN.md](docs/CLUSTER_JOIN.md) for steps and security limits.
-
-The WebUI reverse-engineering findings for fnOS 1.2.0701 are in [docs/FNOS_WEBUI_1.2.0701_FINDINGS.md](docs/FNOS_WEBUI_1.2.0701_FINDINGS.md). The CDIfn/Fndesk comparison and remaining validation steps are in [docs/FNOS_FPK_WEBUI_REFERENCES.md](docs/FNOS_FPK_WEBUI_REFERENCES.md). Remote Settings remains experimental because the official frontend binds it to the desktop's main RPC singleton.
-
-## fnOS package
-
-On Windows, `./packaging/fnos/build.ps1 -Arch amd64` produces [x86 FPK](packaging/fnos/fncluster.fpk); `-Arch arm64` produces [ARM FPK](packaging/fnos/fncluster-arm.fpk). The package registers a fnOS desktop icon that opens the standalone FnCluster page inside an iframe. Its `/app/fncluster/` route uses the Unix socket gateway shape found in Fndesk. Confirm route access control on the target fnOS before adding mutating browser APIs. See [packaging/fnos/README.md](packaging/fnos/README.md).
-
-## WebUI integration
-
-The loader is served at `/app/fncluster/inject/loader.js` through the FPK gateway. It renders a cluster node badge and aggregate storage text on the verified 1.2.0701 asset build. Patch application is an explicit action from the desktop page or the CLI. It checks the exact original `index.html` hash, saves a backup, applies one marked script, and checks the served page. Because fnOS's `trim_file_monitor` restores `/usr/trim/www` from `/usr/trim/share/.restore/www.zip`, the same entry is kept in sync inside that archive; the shipped archive is encrypted, so when its entries cannot be read the archive is rebuilt as plaintext from the live www tree (fnOS accepts plaintext restore archives). The pristine archive is copied to `/usr/trim/share/.restore/www-before-cluster.bak` before the first change, and a working copy is kept in the state directory and restored on recovery. If the gateway returns fnOS's unauthenticated `invalid token` response for the loader, it verifies the loader through the local FPK socket; the authenticated desktop still needs a browser check. Transient desktop restarts are retried (6 × 5 s) before rollback, and an unregistered build can be patched only with an explicit compatibility confirmation after structure validation. A failed check restores the original. The browser page shows patch/archive state and tails the service and audit logs; every browser action is written to the local audit log. The loader also bridges the native desktop widget (0.1.11): a node switch next to its display settings shows the local node natively, feeds remote-node metrics into the native cards, or renders a per-node overview; it is browser-only and disables itself on unrecognized builds.
-
-```bash
-./fncluster webui status
-./fncluster webui apply \
-  --loader-file /var/apps/fncluster/target/inject/loader.js \
-  --health-url http://127.0.0.1:5666/
-./fncluster recover webui
-./fncluster webui enable  # only after checking the supported WebUI build
-```
-
-The FPK contains that loader path. The `--health-url` must point to the local fnOS WebUI. Recovery works without the agent or browser. See [docs/WEBUI_RECOVERY.md](docs/WEBUI_RECOVERY.md).
-
-The shipped management page and loader live in `internal/api/web` and are embedded in the Go binary; `web/panel/` contains research-only browser scripts and is not packaged. Remote native panel design and its open question are in [docs/PANEL_ACCESS.md](docs/PANEL_ACCESS.md); the two-node acceptance runbook is [docs/DEVICE_VALIDATION.md](docs/DEVICE_VALIDATION.md).
-
-## Current limits
-
-- Node join and mTLS state exchange pass a local two-node integration test, but have not yet been verified on two fnOS machines. Member removal is implemented as controller-only revocation (`cluster remove`); real two-node propagation is still unverified.
-- Host metrics require Linux `/proc`; running the HTTP process on Windows is useful for UI/API development only.
-- The x86 FPK was upgraded on fnOSTest (fnOS 1.2.0701) and its administrator desktop page showed numeric memory, `/vol1` storage, and discovered panels. ARM installation, two-node operation, and the browser management flow still need target-system testing.
-- Browser management has no separate management password: it trusts the fnOS gateway login as the identity boundary and requires the `X-FnCluster: 1` header plus same-origin access. Device checks confirmed unauthenticated GET/POST are blocked and that a root-owned `0600` socket keeps the desktop working, so the socket no longer accepts other local users. A revoked node can be re-admitted entirely from the browser (new pairing code + “重置节点身份”).
-- Native remote Settings/Files are not connected: the captured fnOS build binds Settings to the desktop's main RPC singleton, and remote fnOS user authentication remains separate from cluster membership.
-- Storage numbers are sums of configured local mounts, never a virtual filesystem or pool.
+- 网页接口信任飞牛网关登录；写操作要求 `X-FnCluster: 1` 请求头并写入审计日志，没有独立管理密码，也没有任意 shell 接口。
+- 节点间使用集群 mTLS；中继只允许访问本机回环地址与已声明的应用端口。
+- 集群存储只是各节点容量的汇总统计，不是共享存储。
