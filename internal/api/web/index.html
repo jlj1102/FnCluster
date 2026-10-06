@@ -4,96 +4,187 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FnCluster</title>
-  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="icon.png">
+  <link rel="stylesheet" href="style.css?v=0.4.3">
 </head>
 <body>
-  <main>
-    <header><h1>FnCluster</h1><span id="status">连接中…</span></header>
-    <section class="summary" aria-label="集群概览">
-      <article><h2>在线节点</h2><strong id="nodes">—</strong></article>
-      <article><h2>集群总存储</h2><strong id="storage">—</strong><small>在线节点容量之和，并非共享存储池</small></article>
-    </section>
+  <script>
+    (function () {
+      function mode() {
+        try {
+          if (window.parent && window.parent !== window) {
+            var body = window.parent.document.body;
+            if (body) {
+              var attr = body.getAttribute('theme-mode');
+              if (attr) return attr === 'dark' ? 'dark' : 'light';
+              if (window.parent.document.documentElement.classList.contains('dark')) return 'dark';
+              return 'light';
+            }
+          }
+        } catch (_) { /* cross-origin parent */ }
+        return (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
+      var mode = mode();
+      document.documentElement.classList.add(mode);
+      if (mode === 'dark') document.body.setAttribute('theme-mode', 'dark');
+    })();
+  </script>
 
-    <h2>集群管理</h2>
-    <section class="manager">
-      <article>
-        <p id="mesh-status">读取中…</p>
-        <div id="mesh-setup" class="hidden">
-          <h3>创建新集群</h3>
-          <label>本机地址（用于节点间连接）
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <img src="icon.png" alt="" class="brand-icon">
+        <div class="brand-text">
+          <strong>FnCluster</strong>
+          <span id="status" class="status-pill">连接中…</span>
+        </div>
+      </div>
+      <nav class="nav" id="fncluster-nav" aria-label="FnCluster 导航">
+        <button class="nav-item active" data-view="overview" type="button">总览</button>
+        <button class="nav-item" data-view="nodes" type="button">节点</button>
+        <button class="nav-item" data-view="cluster" type="button">集群</button>
+        <button class="nav-item" data-view="integration" type="button">桌面集成</button>
+        <button class="nav-item" data-view="logs" type="button">日志</button>
+        <button class="nav-item" data-view="about" type="button">关于</button>
+      </nav>
+      <p class="sidebar-foot">多节点 fnOS 扩展<br>存储为聚合统计，非共享存储池</p>
+    </aside>
+
+    <main class="content">
+      <header class="content-head">
+        <h1 id="view-title">总览</h1>
+        <p id="view-desc">集群状态与总容量</p>
+      </header>
+
+      <section class="view" data-view="overview">
+        <div class="cards">
+          <article class="card stat">
+            <h3>在线节点</h3>
+            <strong id="nodes">—</strong>
+          </article>
+          <article class="card stat">
+            <h3>集群总存储</h3>
+            <strong id="storage">—</strong>
+            <small>在线节点容量之和，并非共享存储池</small>
+          </article>
+        </div>
+      </section>
+
+      <section class="view hidden" data-view="nodes">
+        <div id="node-list" class="node-list" aria-live="polite"></div>
+        <p class="note">应用和系统面板目录仅显示发现结果；远端原生面板仍在验证独立会话方案。</p>
+      </section>
+
+      <section class="view hidden" data-view="cluster">
+        <article class="card">
+          <h2>集群状态</h2>
+          <p id="mesh-status">读取中…</p>
+        </article>
+
+        <article class="card" id="mesh-setup-card">
+          <h2>创建新集群</h2>
+          <div class="field">
+            <label for="mesh-address">本机地址（用于节点间连接）</label>
             <select id="mesh-address"></select>
-          </label>
-          <button id="mesh-init" type="button">创建集群</button>
-        </div>
-        <div id="mesh-join" class="hidden">
-          <h3>加入现有集群</h3>
-          <label>种子节点 IP:端口
+          </div>
+          <div class="actions">
+            <button id="mesh-init" type="button" class="primary">创建集群</button>
+          </div>
+        </article>
+
+        <article class="card" id="mesh-join-card">
+          <h2>加入现有集群</h2>
+          <div class="field">
+            <label for="mesh-seed">种子节点 IP:端口</label>
             <input id="mesh-seed" placeholder="192.168.1.10:38671" autocomplete="off">
-          </label>
-          <label>配对码（由种子节点生成）
+          </div>
+          <div class="field">
+            <label for="mesh-code">配对码（由种子节点生成）</label>
             <textarea id="mesh-code" rows="2" placeholder="粘贴配对码" autocomplete="off"></textarea>
-          </label>
-          <p class="hint">配对码一次性、15 分钟有效；重新加入前需要在创建者处重新生成。</p>
-          <label>本机地址（用于节点间连接）
+          </div>
+          <div class="field">
+            <label for="mesh-address-join">本机地址（用于节点间连接）</label>
             <select id="mesh-address-join"></select>
-          </label>
-          <button id="mesh-join-btn" type="button">加入集群</button>
-        </div>
-        <div id="mesh-token" class="hidden">
-          <h3>配对码</h3>
+          </div>
+          <p class="hint">配对码一次性、15 分钟有效；重新加入前需要在创建者处重新生成。</p>
+          <div class="actions">
+            <button id="mesh-join-btn" type="button" class="primary">加入集群</button>
+          </div>
+        </article>
+
+        <article class="card hidden" id="mesh-token-card">
+          <h2>配对码</h2>
           <p class="hint">在另一台节点的 FnCluster 页面填写本机 IP 与这段配对码即可加入。15 分钟内有效，只能使用一次。</p>
           <textarea id="mesh-code-out" rows="2" readonly placeholder="点击下方按钮生成"></textarea>
-          <div class="row">
-            <button id="mesh-token-btn" type="button">生成配对码</button>
+          <div class="actions">
+            <button id="mesh-token-btn" type="button" class="primary">生成配对码</button>
             <button id="mesh-copy" type="button" class="secondary">复制</button>
           </div>
-        </div>
-        <div id="mesh-members" class="hidden">
-          <h3>成员</h3>
-          <ul id="mesh-member-list"></ul>
-          <button id="mesh-leave" type="button" class="danger">退出集群</button>
-        </div>
+        </article>
+
+        <article class="card" id="mesh-members-card">
+          <h2>成员</h2>
+          <ul id="mesh-member-list" class="member-list"></ul>
+          <div class="actions">
+            <button id="mesh-leave" type="button" class="danger" disabled>退出集群</button>
+            <span id="mesh-leave-hint" class="hint inline"></span>
+          </div>
+        </article>
+
         <p id="mesh-error" class="error hidden" role="alert"></p>
-        <details id="mesh-advanced">
-          <summary>高级 / 调试</summary>
+      </section>
+
+      <section class="view hidden" data-view="integration">
+        <article class="card">
+          <h2>飞牛桌面集成</h2>
+          <p>状态：<strong id="webui-status">—</strong></p>
+          <p class="hint">仅支持已验证的 fnOS 1.2.0701 页面。启用与恢复会修改 /usr/trim/www/index.html；健康检查失败会自动回滚。未登录时网关会遮挡页面，启用后请在已登录的浏览器里确认桌面集成生效。</p>
+          <p class="hint">审计日志：<code id="audit-path">—</code></p>
+          <p class="hint" id="archive-hint">fnOS 还原包：—</p>
+          <p class="hint hidden" id="fndesk-hint"></p>
+          <div class="actions">
+            <button id="webui-apply" type="button" class="primary">启用桌面集成</button>
+            <button id="webui-apply-compatible" type="button" class="secondary hidden">兼容模式启用</button>
+            <button id="webui-restore" type="button" class="danger">恢复原始桌面</button>
+            <button id="webui-enable" type="button" class="secondary">解除安全模式</button>
+            <button id="webui-badge-show" type="button" class="secondary">隐藏桌面角标</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="view hidden" data-view="logs">
+        <article class="card">
+          <div class="card-head">
+            <h2>日志</h2>
+            <div class="actions">
+              <select id="log-source">
+                <option value="service">服务日志</option>
+                <option value="audit">审计日志</option>
+              </select>
+              <button id="log-refresh" type="button" class="secondary">刷新</button>
+            </div>
+          </div>
+          <pre id="log-output" class="log">加载中…</pre>
+        </article>
+      </section>
+
+      <section class="view hidden" data-view="about">
+        <article class="card">
+          <h2>关于 FnCluster</h2>
+          <p class="hint">FnCluster 把多台 fnOS 组织成一个可统一查看的环境：节点健康、存储统计、应用目录与远端桌面。集群身份独立于 fnOS 用户身份，节点之间使用 mTLS。</p>
+          <p class="hint">安全边界：本地网关登录 + 集群 mTLS；中继只拨本机回环与已声明端口；所有集群操作写入审计日志。</p>
+        </article>
+        <article class="card">
+          <h2>高级 / 调试</h2>
           <p class="hint">重置节点身份会删除本机的集群状态与节点 ID，用于节点被移除后卡住或调试。创建者上仍保留旧成员记录，需要在那里移除；其他节点的数据和存储不受影响。</p>
-          <button id="mesh-reset" type="button" class="danger">重置节点身份</button>
-        </details>
-      </article>
+          <div class="actions">
+            <button id="mesh-reset" type="button" class="danger">重置节点身份</button>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
 
-      <article>
-        <h3>飞牛桌面集成</h3>
-        <p>状态：<strong id="webui-status">—</strong></p>
-        <p class="hint">仅支持已验证的 fnOS 1.2.0701 页面。启用与恢复会修改 /usr/trim/www/index.html；健康检查失败会自动回滚。未登录时网关会遮挡页面，启用后请在已登录的浏览器里确认桌面集成生效。</p>
-        <p class="hint">审计日志：<code id="audit-path">—</code></p>
-        <p class="hint" id="archive-hint">fnOS 还原包：—</p>
-        <p class="hint hidden" id="fndesk-hint"></p>
-        <div class="row">
-          <button id="webui-apply" type="button">启用桌面集成</button>
-          <button id="webui-apply-compatible" type="button" class="secondary hidden">兼容模式启用</button>
-          <button id="webui-restore" type="button" class="danger">恢复原始桌面</button>
-          <button id="webui-enable" type="button" class="secondary">解除安全模式</button>
-          <button id="webui-badge-show" type="button" class="secondary">隐藏桌面角标</button>
-        </div>
-      </article>
-
-      <article>
-        <h3>日志</h3>
-        <div class="row">
-          <select id="log-source">
-            <option value="service">服务日志</option>
-            <option value="audit">审计日志</option>
-          </select>
-          <button id="log-refresh" type="button" class="secondary">刷新</button>
-        </div>
-        <pre id="log-output" class="log">加载中…</pre>
-      </article>
-    </section>
-
-    <h2>节点</h2>
-    <section id="node-list" class="node-list" aria-live="polite"></section>
-    <p class="note">应用和系统面板目录仅显示发现结果；远端原生面板仍在验证独立会话方案。</p>
-  </main>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=0.4.3"></script>
 </body>
 </html>

@@ -70,6 +70,12 @@ func TestReadOnlyAPI(t *testing.T) {
 	if response.Code != http.StatusPermanentRedirect || response.Header().Get("Location") != "/app/fncluster/" {
 		t.Fatalf("app entry returned %d, location %q", response.Code, response.Header().Get("Location"))
 	}
+	request = httptest.NewRequest(http.MethodGet, "/app/fncluster/", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "fncluster-nav") || !strings.Contains(response.Body.String(), "app.js?v=") {
+		t.Fatalf("app page returned %d: %q", response.Code, response.Body.String())
+	}
 }
 
 func TestPanelIconFallbackIsNotCached(t *testing.T) {

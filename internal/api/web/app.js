@@ -11,12 +11,83 @@ const uptime = seconds => Number.isFinite(seconds) && seconds > 0
 const short = id => id ? `${id.slice(0, 8)}…` : '—';
 let targetScrolled = false;
 
-// A remote panel entry opens /app/fncluster/?node=...&panel=...; highlight the
-// matching node card (and panel chip) so the user sees where the click landed.
+// Only touch classes/attributes when the value actually changes: the poll
+// runs every few seconds and unconditional toggles made controls blink.
+function setHidden(element, hidden) {
+  if (element.classList.contains('hidden') !== hidden) element.classList.toggle('hidden', hidden);
+}
+
+/* ---------- theme: follow the main WebUI / relay frame / OS ---------- */
+
+function parentTheme() {
+  try {
+    if (!window.parent || window.parent === window) return null;
+    const parentDocument = window.parent.document;
+    const body = parentDocument.body;
+    if (body) {
+      const attr = body.getAttribute('theme-mode');
+      if (attr) return attr === 'dark' ? 'dark' : 'light';
+      return parentDocument.documentElement.classList.contains('dark') ? 'dark' : 'light';
+    }
+  } catch (_) { /* cross-origin parent */ }
+  return null;
+}
+
+function themeMode() {
+  const inherited = parentTheme();
+  if (inherited) return inherited;
+  const own = document.body.getAttribute('theme-mode');
+  if (own) return own === 'dark' ? 'dark' : 'light';
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme() {
+  const dark = themeMode() === 'dark';
+  document.documentElement.classList.toggle('dark', dark);
+  document.documentElement.classList.toggle('light', !dark);
+  if (dark) document.body.setAttribute('theme-mode', 'dark');
+  else document.body.setAttribute('theme-mode', 'light');
+}
+
+applyTheme();
+setInterval(() => { if (!document.hidden) applyTheme(); }, 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) applyTheme(); });
+
+/* ---------- navigation ---------- */
+
+const views = {
+  overview: ['总览', '集群状态与总容量'],
+  nodes: ['节点', '节点健康、存储与发现的应用目录'],
+  cluster: ['集群', '创建、加入、配对与成员管理'],
+  integration: ['桌面集成', 'fnOS WebUI 注入与恢复'],
+  logs: ['日志', '服务日志与审计日志'],
+  about: ['关于', '说明与高级操作'],
+};
+
+function switchView(name) {
+  if (!views[name]) return;
+  for (const item of document.querySelectorAll('.nav-item')) {
+    item.classList.toggle('active', item.dataset.view === name);
+  }
+  for (const view of document.querySelectorAll('.view')) {
+    setHidden(view, view.dataset.view !== name);
+  }
+  $('view-title').textContent = views[name][0];
+  $('view-desc').textContent = views[name][1];
+}
+
+$('fncluster-nav').addEventListener('click', event => {
+  const item = event.target.closest('.nav-item');
+  if (item) switchView(item.dataset.view);
+});
+
+// A remote panel entry opens /app/fncluster/?node=...&panel=...; show the node
+// list and highlight the card the click landed on.
 function focusTarget() {
   const params = new URLSearchParams(location.search);
   const nodeId = params.get('node');
   if (!nodeId) return;
+  switchView('nodes');
   const card = document.querySelector(`.node[data-node-id="${CSS.escape(nodeId)}"]`);
   if (!card) return;
   card.classList.add('target');
@@ -34,6 +105,8 @@ function focusTarget() {
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
+
+/* ---------- api helpers ---------- */
 
 async function api(path, options = {}) {
   const method = options.method || 'GET';
@@ -57,6 +130,7 @@ function showMeshError(error) {
   const box = $('mesh-error');
   box.textContent = error.message;
   box.classList.remove('hidden');
+  switchView('cluster');
 }
 
 async function runAction(button, task, confirmText) {
@@ -90,27 +164,16 @@ async function loadInterfaces() {
   }
 }
 
-function renderMesh(mesh) {
-  const configured = Boolean(mesh.configured);
-  $('mesh-setup').classList.toggle('hidden', configured);
-  $('mesh-join').classList.toggle('hidden', configured);
-  $('mesh-members').classList.toggle('hidden', !configured);
-  $('mesh-token').classList.toggle('hidden', !(configured && mesh.isController));
-  $('mesh-leave').classList.toggle('hidden', !configured || mesh.isController);
-  $('mesh-status').classList.remove('error');
-  if (!configured) {
-    $('mesh-status').textContent = '本机尚未加入集群：可以创建新集群，或使用另一台生成的配对码加入。';
-    return;
-  }
-  if (mesh.localRevoked) {
-    $('mesh-status').textContent = `本机已被集群创建者移除（节点 ${short(mesh.nodeId)}）。重新加入：在创建者处生成新配对码 → 展开下方“高级 / 调试”重置节点身份 → 用新配对码加入。`;
-    $('mesh-status').classList.add('error');
-    return;
-  }
-  const running = mesh.running ? `运行中 ${mesh.listen || ''}` : '未运行';
-  $('mesh-status').textContent = `集群 ${short(mesh.clusterId)} · 本节点 ${short(mesh.nodeId)} · 控制器 ${short(mesh.controllerId)} · mTLS ${running}`;
-  const list = $('mesh-member-list');
+/* ---------- cluster (mesh) ---------- */
+
+let memberSignature = '';
+
+function renderMembers(mesh) {
   const rows = Object.entries(mesh.members || {}).sort((a, b) => a[0].localeCompare(b[0]));
+  const revokedIds = Object.keys(mesh.revoked || {});
+  const signature = JSON.stringify([rows, revokedIds, mesh.isController, mesh.nodeId]);
+  if (signature === memberSignature) return;
+  memberSignature = signature;
   const items = rows.map(([id, address]) => {
     const item = document.createElement('li');
     item.className = 'member';
@@ -127,20 +190,59 @@ function renderMesh(mesh) {
     }
     return item;
   });
-  const revokedIds = Object.keys(mesh.revoked || {});
   if (revokedIds.length) {
     const item = document.createElement('li');
     item.className = 'member revoked';
     item.textContent = `已吊销：${revokedIds.map(short).join('、')}`;
     items.push(item);
   }
-  list.replaceChildren(...items);
+  if (!items.length) {
+    const item = document.createElement('li');
+    item.className = 'member revoked';
+    item.textContent = '暂无成员';
+    items.push(item);
+  }
+  $('mesh-member-list').replaceChildren(...items);
+}
+
+function renderMesh(mesh) {
+  const configured = Boolean(mesh.configured);
+  setHidden($('mesh-setup-card'), configured);
+  setHidden($('mesh-join-card'), configured);
+  setHidden($('mesh-token-card'), !(configured && mesh.isController));
+  $('mesh-status').classList.remove('error');
+
+  // The leave control is persistent: disabled with an explanation instead of
+  // appearing/disappearing with each poll.
+  const leave = $('mesh-leave');
+  leave.disabled = !configured || Boolean(mesh.isController);
+  $('mesh-leave-hint').textContent = !configured
+    ? '当前未加入集群。'
+    : mesh.isController
+      ? '创建者不能退出；解散集群未实现（可手动删除 mesh.json 或先移除其他成员）。'
+      : '';
+
+  if (!configured) {
+    memberSignature = '';
+    renderMembers({ ...mesh, members: {}, revoked: {} });
+    $('mesh-status').textContent = '本机尚未加入集群：可以创建新集群，或使用另一台生成的配对码加入。';
+    return;
+  }
+  if (mesh.localRevoked) {
+    $('mesh-status').textContent = `本机已被集群创建者移除（节点 ${short(mesh.nodeId)}）。重新加入：在创建者处生成新配对码 → 在“关于”里重置节点身份 → 用新配对码加入。`;
+    $('mesh-status').classList.add('error');
+    renderMembers(mesh);
+    return;
+  }
+  const running = mesh.running ? `运行中 ${mesh.listen || ''}` : '未运行';
+  $('mesh-status').textContent = `集群 ${short(mesh.clusterId)} · 本节点 ${short(mesh.nodeId)} · 控制器 ${short(mesh.controllerId)} · mTLS ${running}`;
+  renderMembers(mesh);
 }
 
 function renderWebUI(webui) {
   const suffix = webui.integrationConfigured ? '' : '（未配置注入路径）';
   $('webui-status').textContent = `${webui.status}${suffix}${webui.compatible ? ' · 未登记版本，可兼容模式启用' : ''}`;
-  $('webui-apply-compatible').classList.toggle('hidden', !webui.compatible);
+  setHidden($('webui-apply-compatible'), !webui.compatible);
   $('audit-path').textContent = webui.auditLog || '—';
   const archive = webui.archive || {};
   const emergency = archive.emergency ? ' · 应急备份已就位' : '';
@@ -148,14 +250,11 @@ function renderWebUI(webui) {
     ? `fnOS 还原包：${archive.path}${archive.backedUp ? '（已备份原包，重启后仍生效）' : '（原包未备份）'}${emergency}`
     : 'fnOS 还原包：未同步（fnOS 可能还原补丁）';
   const fndesk = webui.fndesk || {};
-  const fndeskHint = $('fndesk-hint');
   if (fndesk.detected) {
     const evidence = (fndesk.evidence || []).join('、');
-    fndeskHint.textContent = `检测到 FnDesk（${evidence}）：两者可共存（各自往 index.html 插入自己的 script），但需要用“兼容模式启用”；任一方的恢复或整包还原都会移除对方注入，需要重新启用。`;
-    fndeskHint.classList.remove('hidden');
-  } else {
-    fndeskHint.classList.add('hidden');
+    $('fndesk-hint').textContent = `检测到 FnDesk（${evidence}）：两者可共存（各自往 index.html 插入自己的 script），但需要用“兼容模式启用”；任一方的恢复或整包还原都会移除对方注入，需要重新启用。`;
   }
+  setHidden($('fndesk-hint'), !fndesk.detected);
 }
 
 async function loadLogs() {
@@ -178,6 +277,8 @@ async function removeNode(id) {
     showMeshError(error);
   }
 }
+
+/* ---------- polling ---------- */
 
 async function refresh() {
   try {
@@ -261,6 +362,8 @@ async function refresh() {
     showMeshError(error);
   }
 }
+
+/* ---------- actions ---------- */
 
 $('mesh-init').addEventListener('click', () => {
   const advertise = $('mesh-address').value;
