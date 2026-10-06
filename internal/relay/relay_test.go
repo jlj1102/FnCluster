@@ -171,6 +171,9 @@ func TestInjectShim(t *testing.T) {
 	if !strings.Contains(out, "markAppview") || !strings.Contains(out, "fncluster-appview-window") || !strings.Contains(out, "visibility") {
 		t.Fatalf("appview header marker missing: %s", out)
 	}
+	if !strings.Contains(out, "resizable-handler") {
+		t.Fatalf("body marker must skip resize handles: %s", out)
+	}
 	if string(injectShim(body, "")) != string(body) {
 		t.Fatal("empty prefix must not change the body")
 	}

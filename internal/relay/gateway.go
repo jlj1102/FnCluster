@@ -240,7 +240,16 @@ func shimScript(prefix string) string {
       var win=document.querySelector('.trim-ui__app-layout--window');
       if(!win) return;
       win.classList.add('fncluster-appview-window');
-      if(win.lastElementChild) win.lastElementChild.classList.add('fncluster-appview-body');
+      // The last child is a resize handle (resizable-handler), not the body;
+      // the body is the direct child carrying the relative class.
+      var kids=win.children;
+      for(var i=0;i<kids.length;i++){
+        var el=kids[i];
+        if(el.classList.contains('relative')&&!el.classList.contains('resizable-handler')){
+          el.classList.add('fncluster-appview-body');
+          break;
+        }
+      }
     };
     var markPending=false;
     var scheduleMark=function(){
