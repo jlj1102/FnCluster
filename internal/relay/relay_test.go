@@ -76,6 +76,27 @@ func TestOriginLandingRedirectsToDesktopRoot(t *testing.T) {
 	}
 }
 
+func TestOriginLandingKeepsTheme(t *testing.T) {
+	sessions := NewSessions(time.Hour)
+	token := sessions.Mint("node-a", GatewayApp, "")
+	if _, ok := sessions.AssignPort(token, []int{6001}); !ok {
+		t.Fatal("port assignment failed")
+	}
+	server := &Server{TTL: time.Hour, Sessions: sessions}
+	request := httptest.NewRequest(http.MethodGet, "/open/"+token+"?anchor=trim.download-center&fncluster_theme=dark", nil)
+	response := httptest.NewRecorder()
+	server.originHandler(6001).ServeHTTP(response, request)
+	if got := response.Header().Get("Location"); got != "/?fncluster_relay_anchor=trim.download-center&fncluster_theme=dark" {
+		t.Fatalf("landing = %q", got)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/open/"+token+"?anchor=trim.download-center&fncluster_theme=evil", nil)
+	response = httptest.NewRecorder()
+	server.originHandler(6001).ServeHTTP(response, request)
+	if got := response.Header().Get("Location"); got != "/?fncluster_relay_anchor=trim.download-center" {
+		t.Fatalf("invalid theme not dropped: %q", got)
+	}
+}
+
 func TestOriginHandlerRejectsForeignPort(t *testing.T) {
 	sessions := NewSessions(time.Hour)
 	token := sessions.Mint("node-a", "tailscale", "")
@@ -173,6 +194,9 @@ func TestInjectShim(t *testing.T) {
 	}
 	if !strings.Contains(out, "resizable-handler") {
 		t.Fatalf("body marker must skip resize handles: %s", out)
+	}
+	if !strings.Contains(out, "fncluster:theme") || !strings.Contains(out, "os-theme-mode") {
+		t.Fatalf("theme bridge missing: %s", out)
 	}
 	if string(injectShim(body, "")) != string(body) {
 		t.Fatal("empty prefix must not change the body")

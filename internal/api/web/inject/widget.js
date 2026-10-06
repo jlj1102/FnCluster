@@ -528,6 +528,36 @@
     ? `/app/fncluster/api/v1/panels/icon/${encodeURIComponent(node.id)}/${encodeURIComponent(panel.appName)}`
     : REMOTE_ENTRY_ICON;
 
+  // Relay frames are a different origin (same host, different port), so their
+  // storage cannot see this desktop's theme; carry the effective mode over.
+  const themeMode = () => {
+    try {
+      return document.body && document.body.getAttribute('theme-mode') === 'dark' ? 'dark' : 'light';
+    } catch (_) {
+      return 'light';
+    }
+  };
+
+  function installThemeBridge() {
+    window.addEventListener('message', event => {
+      const data = event && event.data;
+      if (!data || data.type !== 'fncluster:theme?') return;
+      try {
+        event.source.postMessage({ type: 'fncluster:theme', mode: themeMode() }, '*');
+      } catch (_) { /* ignore */ }
+    });
+    const broadcast = () => {
+      const mode = themeMode();
+      document.querySelectorAll('iframe').forEach(frame => {
+        try { frame.contentWindow.postMessage({ type: 'fncluster:theme', mode }, '*'); } catch (_) { /* ignore */ }
+      });
+    };
+    try {
+      new MutationObserver(broadcast).observe(document.body, { attributes: true, attributeFilter: ['theme-mode'] });
+      new MutationObserver(broadcast).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    } catch (_) { /* no body yet: the request/reply path still works */ }
+  }
+
   // Relay sessions are minted in one batch and cached for ~11h; without them
   // relayable panels fall back to DIRECT URLs.
   async function ensureRelayUrls() {
@@ -608,9 +638,12 @@
         if (!target && panel.appName) {
           // The gateway relay tunnels the remote desktop same-site, so its
           // cookies work. The relay page hides the remote appview window
-          // header, so the local task window is the only visible frame.
+          // header, so the local task window is the only visible frame; the
+          // theme travels along because relay storage cannot see ours.
           const gatewayBase = state.relayUrls.get(`gateway:${node.id}`);
-          if (gatewayBase) target = `${gatewayBase}?anchor=${encodeURIComponent(panel.appName)}`;
+          if (gatewayBase) {
+            target = `${gatewayBase}?anchor=${encodeURIComponent(panel.appName)}&fncluster_theme=${themeMode()}`;
+          }
         }
         if (!target) target = directPanelURL(node, panel);
         if (!target && panel.appName && node.webOrigin) {
@@ -823,6 +856,7 @@
       return;
     }
     state.main ? installEntryInjection() : console.log('[FnCluster] main socket not found; all-apps injection disabled');
+    installThemeBridge();
     // No debounce: reattach never renders, so running at the mutation
     // microtask keeps the overview attached in the same frame as React's
     // commit and cannot loop.

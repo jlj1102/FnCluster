@@ -283,10 +283,19 @@ func (s *Server) originHandler(port int) http.Handler {
 			// The desktop root must mount first: its resource polling
 			// initializes the timer socket that iframe micro-apps query
 			// through. /appview alone leaves that socket null. The shim
-			// opens the app once the root is ready.
+			// opens the app once the root is ready. The desktop theme rides
+			// along because relay storage cannot see the local one.
 			landing := "/"
+			query := url.Values{}
 			if anchor := r.URL.Query().Get("anchor"); anchor != "" {
-				landing = "/?fncluster_relay_anchor=" + url.QueryEscape(anchor)
+				query.Set("fncluster_relay_anchor", anchor)
+			}
+			switch theme := r.URL.Query().Get("fncluster_theme"); theme {
+			case "dark", "light":
+				query.Set("fncluster_theme", theme)
+			}
+			if encoded := query.Encode(); encoded != "" {
+				landing += "?" + encoded
 			}
 			http.Redirect(w, r, landing, http.StatusFound)
 			return

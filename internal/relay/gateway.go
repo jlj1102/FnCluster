@@ -227,6 +227,51 @@ func shimScript(prefix string) string {
       for(var j=0;j<keys.length;j++) this.removeItem(keys[j]);
     };
   }catch(e){}
+  // The relay origin has its own storage, so the remote SPA would resolve
+  // light; carry the local desktop's effective mode from the URL, a stash,
+  // or a postMessage, and seed the SPA's own theme key.
+  try{
+    var themeMode=null;
+    try{
+      var tparams=new URLSearchParams(location.search);
+      themeMode=tparams.get('fncluster_theme');
+      if(themeMode){
+        tparams.delete('fncluster_theme');
+        var trest=tparams.toString();
+        history.replaceState(history.state,'',location.pathname+(trest?'?'+trest:'')+location.hash);
+      }
+    }catch(e){}
+    var applyTheme=function(mode){
+      if(mode!=='dark'&&mode!=='light') return;
+      themeMode=mode;
+      try{ sessionStorage.setItem('fncluster.theme',mode); }catch(e){}
+      try{ localStorage.setItem('os-theme-mode',mode==='dark'?'20':'10'); localStorage.setItem('fnos-theme-mode',mode==='dark'?'20':'10'); }catch(e){}
+      var paint=function(){
+        var b=document.body;
+        if(!b) return;
+        if(mode==='dark') b.setAttribute('theme-mode','dark');
+        else if(b.hasAttribute('theme-mode')) b.removeAttribute('theme-mode');
+      };
+      paint();
+      if(document.readyState==='loading') addEventListener('DOMContentLoaded',paint);
+      else setTimeout(paint,0);
+    };
+    if(!themeMode){ try{ themeMode=sessionStorage.getItem('fncluster.theme'); }catch(e){} }
+    if(themeMode) applyTheme(themeMode);
+    addEventListener('message',function(e){
+      var d=e.data;
+      if(!d) return;
+      if(d.type==='fncluster:theme?'){
+        if(themeMode){ try{ e.source.postMessage({type:'fncluster:theme',mode:themeMode},'*'); }catch(err){} }
+        return;
+      }
+      if(d.type==='fncluster:theme'){
+        applyTheme(d.mode);
+        try{ document.querySelectorAll('iframe').forEach(function(f){ try{ f.contentWindow.postMessage(d,'*'); }catch(err){} }); }catch(err){}
+      }
+    });
+    try{ parent.postMessage({type:'fncluster:theme?'},'*'); }catch(e){}
+  }catch(e){}
   // Remote app deep link: the desktop root mounts first because only its
   // resource polling initializes the timer socket that iframe micro-apps
   // query through. Once mod.wa.getSocket() exists, switch to the app.
@@ -276,7 +321,7 @@ func shimScript(prefix string) string {
       if(anchor){
         try{ sessionStorage.setItem('fncluster.relay.anchor',anchor); }catch(e){}
         if(isAppview()){
-          location.replace('/?fncluster_relay_anchor='+encodeURIComponent(anchor));
+          location.replace('/?fncluster_relay_anchor='+encodeURIComponent(anchor)+(themeMode?'&fncluster_theme='+encodeURIComponent(themeMode):''));
         } else {
           // Hide the bootstrap desktop until the app view takes over; the
           // timeout covers login pages where no desktop mounts yet.
