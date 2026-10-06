@@ -152,6 +152,7 @@ func serve(args []string) error {
 		State:      agent.State,
 	}
 	adminOps.Relayable = agent.Relayable
+	adminOps.ReportPortTarget = agent.AddReportedTarget
 	var relayServer *relay.Server
 	if *relayListen != "" && *relayPorts > 0 {
 		_, relayPort, relayErr := net.SplitHostPort(*relayListen)

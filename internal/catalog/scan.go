@@ -21,13 +21,14 @@ type uiURL struct {
 	NoDisplay     bool      `json:"noDisplay"`
 	GatewaySocket string    `json:"gatewaySocket"`
 	Protocol      string    `json:"protocol"`
-	Port          portValue `json:"port"`
+	Port          PortValue `json:"port"`
 }
 
-// portValue accepts a JSON string or number; fnOS ships both shapes.
-type portValue string
+// PortValue accepts a JSON string or number; fnOS ships both shapes, and
+// unresolved ${port} placeholders stay empty.
+type PortValue string
 
-func (p *portValue) UnmarshalJSON(data []byte) error {
+func (p *PortValue) UnmarshalJSON(data []byte) error {
 	raw := strings.Trim(strings.TrimSpace(string(data)), `"`)
 	if raw == "" || raw == "null" {
 		return nil
@@ -35,8 +36,14 @@ func (p *portValue) UnmarshalJSON(data []byte) error {
 	if _, err := strconv.Atoi(raw); err != nil {
 		return nil
 	}
-	*p = portValue(raw)
+	*p = PortValue(raw)
 	return nil
+}
+
+// IconPath resolves a ui/config icon pattern (images/icon_{0}.png) to the
+// 64px file inside the app directory.
+func IconPath(base, pattern string) string {
+	return iconFile(base, pattern)
 }
 
 // pathOf returns the URL path without the trailing slash ("" for root).

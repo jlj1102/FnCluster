@@ -37,10 +37,13 @@ type Admin struct {
 
 	// RelayBase is the browser-facing relay origin (empty disables relay);
 	// RelayPort is the portal port used to build per-request relay URLs;
-	// Relayable reports whether this node can serve an app through the relay.
-	RelayBase string
-	RelayPort string
-	Relayable func(string) bool
+	// Relayable reports whether this node can serve an app through the relay;
+	// ReportPortTarget registers a runtime-configured port the desktop
+	// reported for an app (raw entries carry the resolved number).
+	RelayBase        string
+	RelayPort        string
+	Relayable        func(string) bool
+	ReportPortTarget func(appName string, port int, scheme string) bool
 
 	mu sync.Mutex
 }

@@ -8,8 +8,10 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
+	"fncluster/internal/catalog"
 	"fncluster/internal/cluster"
 	"fncluster/internal/relay"
 )
@@ -71,16 +73,27 @@ func normalizeWebOrigin(raw string) string {
 }
 
 type panelsReportEntry struct {
-	EntryKey  string `json:"entryKey"`
-	AppName   string `json:"appName"`
-	EntryName string `json:"entryName"`
-	Title     string `json:"title"`
-	Icon      string `json:"icon"`
-	Type      string `json:"type"`
-	FullURL   string `json:"fullUrl"`
-	NativeApp bool   `json:"nativeApp"`
-	IsDisplay *bool  `json:"isDisplay"`
-	Source    string `json:"source"`
+	EntryKey  string            `json:"entryKey"`
+	AppName   string            `json:"appName"`
+	EntryName string            `json:"entryName"`
+	Title     string            `json:"title"`
+	Icon      string            `json:"icon"`
+	Type      string            `json:"type"`
+	Protocol  string            `json:"protocol"`
+	Port      catalog.PortValue `json:"port"`
+	FullURL   string            `json:"fullUrl"`
+	NativeApp bool              `json:"nativeApp"`
+	IsDisplay *bool             `json:"isDisplay"`
+	Source    string            `json:"source"`
+}
+
+// reportPort extracts a resolved numeric port; "${port}" placeholders yield 0.
+func reportPort(entry panelsReportEntry) int {
+	port, err := strconv.Atoi(strings.TrimSpace(string(entry.Port)))
+	if err != nil || port < 1 || port > 65535 {
+		return 0
+	}
+	return port
 }
 
 func (s *server) handlePanelsReport(w http.ResponseWriter, r *http.Request) {
@@ -119,8 +132,15 @@ func (s *server) handlePanelsReport(w http.ResponseWriter, r *http.Request) {
 		}
 		seen[id] = true
 		panel := cluster.PanelEntry{ID: id, NodeID: nodeID, Title: title, Icon: entry.Icon, Native: entry.NativeApp, AppName: strings.TrimSpace(entry.AppName)}
-		if panel.AppName != "" && s.admin != nil && s.admin.Relayable != nil {
-			panel.Relayable = s.admin.Relayable(panel.AppName)
+		if panel.AppName != "" {
+			// Ports resolved only at runtime ("${port}") arrive here for apps
+			// whose raw entry carries the configured number.
+			if port := reportPort(entry); port > 0 && s.admin != nil && s.admin.ReportPortTarget != nil {
+				s.admin.ReportPortTarget(panel.AppName, port, entry.Protocol)
+			}
+			if s.admin != nil && s.admin.Relayable != nil {
+				panel.Relayable = s.admin.Relayable(panel.AppName)
+			}
 		}
 		switch {
 		case entry.NativeApp || strings.HasPrefix(entry.AppName, "trim"):

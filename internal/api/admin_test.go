@@ -151,6 +151,35 @@ func TestPanelsReportMapsLocalizedEntries(t *testing.T) {
 	}
 }
 
+func TestPanelsReportRegistersRuntimePort(t *testing.T) {
+	handler, adminOps := testHandler(t)
+	calls := map[string]int{}
+	adminOps.ReportPortTarget = func(app string, port int, scheme string) bool {
+		calls[app] = port
+		return true
+	}
+	adminOps.Relayable = func(string) bool { return true }
+	body := `{"language":"zh-CN","origin":"http://192.168.1.28:5666","entries":[
+		{"entryKey":"OpenList.Application","appName":"OpenList","title":"OpenList","type":"url","protocol":"http","port":5244,"fullUrl":"/"},
+		{"entryKey":"Stringy.Application","appName":"Stringy","title":"Stringy","protocol":"https","port":"8443","fullUrl":"/"},
+		{"entryKey":"Pending.Application","appName":"Pending","title":"Pending","protocol":"http","port":"${port}","fullUrl":"/"}
+	]}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/panels/report", strings.NewReader(body))
+	request.Header.Set("X-FnCluster", "1")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("report returned %d: %s", response.Code, response.Body.String())
+	}
+	if calls["OpenList"] != 5244 || calls["Stringy"] != 8443 {
+		t.Fatalf("reported ports not registered: %+v", calls)
+	}
+	if _, ok := calls["Pending"]; ok {
+		t.Fatalf("${port} placeholder registered: %+v", calls)
+	}
+}
+
 func TestRelayTokensOnlyForRelayablePanels(t *testing.T) {
 	dir := t.TempDir()
 	state := cluster.New(cluster.Node{ID: "local-node", Online: true})

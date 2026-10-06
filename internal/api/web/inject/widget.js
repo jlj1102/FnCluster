@@ -21,6 +21,7 @@
   const POLL_MS = 500;
   const PANELS_REPORT_MS = 30 * 60 * 1000;
   const RELAY_URL_TTL = 11 * 60 * 60 * 1000;
+  const RELAY_RETRY_MS = 30 * 1000;
   const COLLAPSED_HEIGHT = 80;
   const ENTRY_LIST_REQ = 'appcgi.sac.entry.v1.getEntryList';
   const REMOTE_ENTRY_LIMIT = 50; // per node
@@ -44,6 +45,7 @@
     remoteEntries: 0,
     relayUrls: new Map(),
     relayFetchedAt: 0,
+    relayRefreshedAt: 0,
     relayPromise: null,
     mode: 'local',
     entrySignature: '',
@@ -456,7 +458,7 @@
       for (const panel of Array.isArray(node.panels) ? node.panels : []) {
         if (!panel || !panel.id || String(panel.id).startsWith('fncluster:')) continue;
         if (excludedRemotePanel(panel)) continue;
-        parts.push(`${node.id}.${panel.id}`);
+        parts.push(`${node.id}.${panel.id}.${panel.relayable ? 1 : 0}`);
       }
     }
     return parts.sort().join(',');
@@ -472,8 +474,13 @@
     }
     if (signature === state.entrySignature) return;
     state.entrySignature = signature;
-    console.log('[FnCluster] remote panel set changed; requesting a desktop entry refresh');
-    state.mainSocket.emit('domainEvent', { domainEvent: { event: 'user-desktop-entry-change', from: 'trim-sac' } });
+    console.log('[FnCluster] remote panel set changed; refreshing relay urls and desktop entries');
+    // New panels (fresh installs, or a panel that just turned relayable) need
+    // their relay session before the desktop re-runs getEntryList.
+    ensureRelayUrls(true).finally(() => {
+      if (!state.mainSocket) return;
+      state.mainSocket.emit('domainEvent', { domainEvent: { event: 'user-desktop-entry-change', from: 'trim-sac' } });
+    });
   }
 
   // The desktop's own entry list is the complete, localized catalog (system
@@ -602,10 +609,10 @@
   }
 
   // Relay sessions are minted in one batch and cached for ~11h; without them
-  // relayable panels fall back to DIRECT URLs.
-  async function ensureRelayUrls() {
-    if (state.relayUrls.size && Date.now() - state.relayFetchedAt < RELAY_URL_TTL) return;
-    if (state.relayPromise) return state.relayPromise;
+  // relayable panels fall back to DIRECT URLs. New apps (or panels that turned
+  // relayable after a rescan) must not wait for the TTL: fetch when a desired
+  // key is missing, throttled by RELAY_RETRY_MS.
+  async function ensureRelayUrls(force) {
     const nodes = state.nodes;
     const hasLocalFlag = nodes.some(node => node && node.local === true);
     const targets = [];
@@ -620,6 +627,14 @@
       }
     }
     if (!targets.length) return;
+    const keyOf = item => item.appName === GATEWAY_APP
+      ? `gateway:${item.nodeId}`
+      : `${item.nodeId}|${item.appName}`;
+    const missing = targets.some(item => !state.relayUrls.has(keyOf(item)));
+    const fresh = state.relayUrls.size && Date.now() - state.relayFetchedAt < RELAY_URL_TTL;
+    if (!force && fresh && !missing) return;
+    if (!force && missing && Date.now() - state.relayRefreshedAt < RELAY_RETRY_MS) return;
+    if (state.relayPromise) return state.relayPromise;
     state.relayPromise = (async () => {
       try {
         const response = await fetch(API_RELAY_TOKENS, {
@@ -630,7 +645,7 @@
         });
         if (response.ok) {
           const data = await response.json();
-          const relayUrls = new Map();
+          const relayUrls = new Map(state.relayUrls);
           for (const item of (data && data.targets) || []) {
             if (item && item.nodeId && item.appName && item.url) {
               const key = item.appName === GATEWAY_APP
@@ -641,6 +656,7 @@
           }
           state.relayUrls = relayUrls;
           state.relayFetchedAt = Date.now();
+          state.relayRefreshedAt = Date.now();
         }
       } catch (_) {
         /* relay is optional; DIRECT stays as the fallback */
