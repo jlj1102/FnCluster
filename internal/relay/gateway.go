@@ -177,10 +177,13 @@ func injectShim(body []byte, prefix string) []byte {
 	return append(script, body...)
 }
 
-// appviewStyle hides the tunneled appview's own window header. The local
-// task window already provides the only visible title bar; the class is set
-// by shimScript only while the relay page is on the /appview route.
-const appviewStyle = `.fncluster-appview .trim-ui__app-layout--header{display:none!important}`
+// appviewStyle removes the tunneled appview's own title bar while keeping the
+// app content fullscreen (the body normally reserves 44px for the header).
+// Only the outermost appview window is marked by shimScript; windows the app
+// opens later (task windows, dialogs) keep their headers and close buttons.
+const appviewStyle = `.fncluster-appview-window>.trim-ui__app-layout--header{display:none!important}` +
+	`.fncluster-appview-window>.fncluster-appview-body{height:100%!important}` +
+	`.fncluster-appview-window{outline:none!important;box-shadow:none!important}`
 
 func shimScript(prefix string) string {
 	quoted, err := json.Marshal(prefix)
@@ -229,9 +232,25 @@ func shimScript(prefix string) string {
   // query through. Once mod.wa.getSocket() exists, switch to the app.
   try{
     var isAppview=function(){return location.pathname.replace(/\/+$/,'')==='/appview'};
-    var syncAppview=function(){document.documentElement.classList.toggle('fncluster-appview',isAppview())};
-    addEventListener('popstate',syncAppview);
-    syncAppview();
+    var reveal=function(){document.documentElement.style.visibility=''};
+    // Mark only the outermost appview window so its own title bar can be
+    // hidden; windows opened later by the app keep theirs.
+    var markAppview=function(){
+      if(!isAppview()) return;
+      var win=document.querySelector('.trim-ui__app-layout--window');
+      if(!win) return;
+      win.classList.add('fncluster-appview-window');
+      if(win.lastElementChild) win.lastElementChild.classList.add('fncluster-appview-body');
+    };
+    var markPending=false;
+    var scheduleMark=function(){
+      if(markPending) return;
+      markPending=true;
+      requestAnimationFrame(function(){ markPending=false; markAppview(); });
+    };
+    new MutationObserver(scheduleMark).observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+    addEventListener('popstate',scheduleMark);
+    markAppview();
     if(location.pathname.indexOf('/apps/')!==0){
       var anchor=null,pending=null,params=new URLSearchParams(location.search);
       try{ pending=sessionStorage.getItem('fncluster.relay.anchor'); }catch(e){}
@@ -250,17 +269,22 @@ func shimScript(prefix string) string {
         if(isAppview()){
           location.replace('/?fncluster_relay_anchor='+encodeURIComponent(anchor));
         } else {
+          // Hide the bootstrap desktop until the app view takes over; the
+          // timeout covers login pages where no desktop mounts yet.
+          document.documentElement.style.visibility='hidden';
+          var revealTimer=setTimeout(reveal,3000);
           var attempts=0;
           var poll=setInterval(function(){
-            if(++attempts>240){ clearInterval(poll); return; }
+            if(++attempts>240){ clearInterval(poll); clearTimeout(revealTimer); reveal(); return; }
             var script=document.querySelector('script[type="module"][src*="/assets/index-"]');
             import(script?script.src:'/assets/index-DhUqaTaA.js').then(function(mod){
               var sock=mod&&mod.wa&&mod.wa.getSocket?mod.wa.getSocket():null;
               if(!sock) return;
-              clearInterval(poll);
+              clearInterval(poll); clearTimeout(revealTimer);
               try{ sessionStorage.removeItem('fncluster.relay.anchor'); }catch(e){}
               history.pushState(history.state,'','/appview?anchor='+encodeURIComponent(anchor));
               dispatchEvent(new PopStateEvent('popstate'));
+              reveal();
             },function(){});
           },500);
         }

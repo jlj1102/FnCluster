@@ -168,8 +168,8 @@ func TestInjectShim(t *testing.T) {
 	if !strings.Contains(out, "fncluster_relay_anchor") || !strings.Contains(out, "mod.wa") {
 		t.Fatalf("anchor bootstrap missing: %s", out)
 	}
-	if !strings.Contains(out, "fncluster-appview") || !strings.Contains(out, "syncAppview") {
-		t.Fatalf("appview header style missing: %s", out)
+	if !strings.Contains(out, "markAppview") || !strings.Contains(out, "fncluster-appview-window") || !strings.Contains(out, "visibility") {
+		t.Fatalf("appview header marker missing: %s", out)
 	}
 	if string(injectShim(body, "")) != string(body) {
 		t.Fatal("empty prefix must not change the body")
