@@ -229,9 +229,12 @@ func shimScript(prefix string) string {
   }catch(e){}
   // The relay origin has its own storage, so the remote SPA would resolve
   // light; carry the local desktop's effective mode from the URL, a stash,
-  // or a postMessage, and seed the SPA's own theme key.
+  // or a postMessage, and seed the SPA's own theme key. Micro-app SDKs then
+  // write body[theme-mode] from their init config (download center sets
+  // config.os.theme), so re-assert the carried mode for a short settle
+  // window and yield afterwards, letting manual changes inside the frame win.
   try{
-    var themeMode=null;
+    var themeMode=null,themeTimer=null,themeDeadline=0,themeStableSince=0;
     try{
       var tparams=new URLSearchParams(location.search);
       themeMode=tparams.get('fncluster_theme');
@@ -241,20 +244,40 @@ func shimScript(prefix string) string {
         history.replaceState(history.state,'',location.pathname+(trest?'?'+trest:'')+location.hash);
       }
     }catch(e){}
+    var paintTheme=function(mode){
+      var b=document.body;
+      if(!b) return;
+      if(mode==='dark'){ if(b.getAttribute('theme-mode')!=='dark') b.setAttribute('theme-mode','dark'); }
+      else if(b.hasAttribute('theme-mode')) b.removeAttribute('theme-mode');
+    };
+    var stopThemeGuard=function(){ if(themeTimer){ clearInterval(themeTimer); themeTimer=null; } };
+    var themeTick=function(){
+      if(!themeMode){ stopThemeGuard(); return; }
+      var b=document.body;
+      var ok=!!b&&(themeMode==='dark'?b.getAttribute('theme-mode')==='dark':!b.hasAttribute('theme-mode'));
+      if(ok){
+        if(!themeStableSince) themeStableSince=Date.now();
+        if(Date.now()-themeStableSince>2000||Date.now()>themeDeadline) stopThemeGuard();
+        return;
+      }
+      if(Date.now()>themeDeadline){ stopThemeGuard(); return; }
+      paintTheme(themeMode);
+      themeStableSince=0;
+    };
+    var armThemeGuard=function(){
+      themeStableSince=0;
+      themeDeadline=Date.now()+8000;
+      if(!themeTimer) themeTimer=setInterval(themeTick,200);
+    };
     var applyTheme=function(mode){
       if(mode!=='dark'&&mode!=='light') return;
       themeMode=mode;
       try{ sessionStorage.setItem('fncluster.theme',mode); }catch(e){}
       try{ localStorage.setItem('os-theme-mode',mode==='dark'?'20':'10'); localStorage.setItem('fnos-theme-mode',mode==='dark'?'20':'10'); }catch(e){}
-      var paint=function(){
-        var b=document.body;
-        if(!b) return;
-        if(mode==='dark') b.setAttribute('theme-mode','dark');
-        else if(b.hasAttribute('theme-mode')) b.removeAttribute('theme-mode');
-      };
-      paint();
-      if(document.readyState==='loading') addEventListener('DOMContentLoaded',paint);
-      else setTimeout(paint,0);
+      paintTheme(mode);
+      if(document.readyState==='loading') addEventListener('DOMContentLoaded',function(){ paintTheme(mode); });
+      else setTimeout(function(){ paintTheme(mode); },0);
+      armThemeGuard();
     };
     if(!themeMode){ try{ themeMode=sessionStorage.getItem('fncluster.theme'); }catch(e){} }
     if(themeMode) applyTheme(themeMode);

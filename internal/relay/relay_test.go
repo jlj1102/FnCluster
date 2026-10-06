@@ -195,7 +195,7 @@ func TestInjectShim(t *testing.T) {
 	if !strings.Contains(out, "resizable-handler") {
 		t.Fatalf("body marker must skip resize handles: %s", out)
 	}
-	if !strings.Contains(out, "fncluster:theme") || !strings.Contains(out, "os-theme-mode") {
+	if !strings.Contains(out, "fncluster:theme") || !strings.Contains(out, "os-theme-mode") || !strings.Contains(out, "armThemeGuard") {
 		t.Fatalf("theme bridge missing: %s", out)
 	}
 	if string(injectShim(body, "")) != string(body) {
