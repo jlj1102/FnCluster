@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -35,6 +36,21 @@ func (a *Agent) ResolveTarget(appName string) (cluster.RelayTarget, bool) {
 func (a *Agent) Relayable(appName string) bool {
 	_, ok := a.ResolveTarget(appName)
 	return ok
+}
+
+// LocalIcon returns this node's own icon for an app name: the FPK scan icon or
+// the builtin www icon. The relay uses it before falling back to its logo.
+func (a *Agent) LocalIcon(appName string) ([]byte, bool) {
+	if target, ok := a.ResolveTarget(appName); ok && target.IconPath != "" {
+		if data, err := os.ReadFile(target.IconPath); err == nil && len(data) > 0 {
+			return data, true
+		}
+	}
+	data, err := os.ReadFile(filepath.Join("/usr/trim/www/static/app/icons", appName, "icon.png"))
+	if err == nil && len(data) > 0 {
+		return data, true
+	}
+	return nil, false
 }
 
 func (a *Agent) setRelayTargets(targets map[string]cluster.RelayTarget) {

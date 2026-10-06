@@ -161,6 +161,9 @@ type Server struct {
 	TTL      time.Duration
 	Sessions *Sessions
 	Ports    int
+	// LocalIcon resolves this node's own icon for an app name, used as the
+	// relay icon fallback before the cluster logo.
+	LocalIcon func(string) ([]byte, bool)
 
 	iconMu    sync.Mutex
 	iconCache map[string]iconEntry

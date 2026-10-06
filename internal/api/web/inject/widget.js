@@ -857,6 +857,13 @@
   }
 
   async function setup() {
+    // Inside the gateway relay the page already is the remote desktop: running
+    // the bridge there would inject recursive entries whose tokens and relay
+    // origins cross nodes. Stay inert.
+    if (window.__fnclusterRelay) {
+      console.log('[FnCluster] relay frame detected; widget bridge disabled');
+      return;
+    }
     if (!document.querySelector(`script[src="${BUNDLE}"]`)) return; // verified build gate
     if (publicPage()) {
       await waitForDesktop();

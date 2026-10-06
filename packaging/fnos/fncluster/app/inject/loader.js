@@ -47,11 +47,15 @@
     return `${(value / 2 ** 20).toFixed(0)} MB`;
   };
   async function mount() {
+    if (window.__fnclusterRelay) {
+      removeControls();
+      return;
+    }
     if (!document.querySelector('script[src="/assets/index-DhUqaTaA.js"]')) return;
     if (!document.getElementById('fncluster-widget-script')) {
       const widget = document.createElement('script');
       widget.id = 'fncluster-widget-script';
-      widget.src = '/app/fncluster/inject/widget.js?v=0.3.4';
+      widget.src = '/app/fncluster/inject/widget.js?v=0.3.5';
       widget.defer = true;
       document.head.append(widget);
     }

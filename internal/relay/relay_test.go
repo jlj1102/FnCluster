@@ -9,6 +9,8 @@ import (
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -103,6 +105,39 @@ func TestGatewayCookieNamespace(t *testing.T) {
 	}
 	if strings.Contains(got, "fncluster-") || strings.Contains(got, "local") || strings.Contains(got, "other=1") {
 		t.Fatalf("local or session cookie leaked upstream: %q", got)
+	}
+}
+
+func TestSpaRouteWhitelist(t *testing.T) {
+	for _, path := range []string{"/appview", "/appview/", "/reset-password", "/debug", "/404"} {
+		if !spaRoute(path) {
+			t.Fatalf("%s should fall back to the SPA shell", path)
+		}
+	}
+	for _, path := range []string{"/", "/login", "/apps/download/index.html", "/app/fncluster/", "/assets/index.js", "/cgi/ThirdParty/tailscale/index.cgi"} {
+		if spaRoute(path) {
+			t.Fatalf("%s must pass through untouched", path)
+		}
+	}
+}
+
+func TestRemoteIconServesSystemIcon(t *testing.T) {
+	original := systemIconRoot
+	systemIconRoot = t.TempDir()
+	defer func() { systemIconRoot = original }()
+	dir := filepath.Join(systemIconRoot, "trim.download-center")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "icon.png"), []byte("pngbytes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	handler := RemoteHandler(func(string) (cluster.RelayTarget, bool) { return cluster.RelayTarget{}, false })
+	request := httptest.NewRequest(http.MethodGet, "/icon/trim.download-center", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "pngbytes" {
+		t.Fatalf("system icon = %d %q", response.Code, response.Body.String())
 	}
 }
 

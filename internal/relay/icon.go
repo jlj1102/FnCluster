@@ -20,10 +20,11 @@ import (
 var badgePNG []byte
 
 const (
-	iconSize      = 64
-	badgeSize     = 22
-	iconCacheTime = 24 * time.Hour
-	maxIconBytes  = 1 << 20
+	iconSize         = 64
+	badgeSize        = 22
+	iconCacheTime    = 24 * time.Hour
+	iconFallbackTime = 10 * time.Minute
+	maxIconBytes     = 1 << 20
 )
 
 var (
@@ -46,33 +47,47 @@ func DefaultIcon() []byte {
 
 type iconEntry struct {
 	at   time.Time
+	ttl  time.Duration
 	data []byte
 }
 
-// Icon returns the remote app's icon composited with the FnCluster badge,
-// cached per node+app.
+// Icon returns the remote app's icon composited with the FnCluster badge.
+// Fallback order: remote icon -> local same-app icon -> cluster logo (no badge
+// overlay on the logo itself). Fallback results expire quickly so a countable
+// icon takes over later.
 func (s *Server) Icon(nodeID, appName string) ([]byte, error) {
 	key := nodeID + "|" + appName
 	s.iconMu.Lock()
-	if entry, ok := s.iconCache[key]; ok && time.Since(entry.at) < iconCacheTime {
+	if entry, ok := s.iconCache[key]; ok && time.Since(entry.at) < entry.ttl {
 		s.iconMu.Unlock()
 		return entry.data, nil
 	}
 	s.iconMu.Unlock()
 
 	base, err := s.fetchIcon(nodeID, appName)
-	if err != nil {
-		base = badgePNG
+	fallback := err != nil
+	if fallback && s.LocalIcon != nil {
+		if local, ok := s.LocalIcon(appName); ok {
+			base = local
+			fallback = false
+		}
 	}
-	composed, err := compositeIcon(base)
-	if err != nil {
-		composed = base
+	var composed []byte
+	ttl := iconCacheTime
+	if fallback {
+		composed = badgePNG
+		ttl = iconFallbackTime
+	} else {
+		composed, err = compositeIcon(base)
+		if err != nil {
+			composed = base
+		}
 	}
 	s.iconMu.Lock()
 	if s.iconCache == nil {
 		s.iconCache = map[string]iconEntry{}
 	}
-	s.iconCache[key] = iconEntry{at: time.Now(), data: composed}
+	s.iconCache[key] = iconEntry{at: time.Now(), ttl: ttl, data: composed}
 	s.iconMu.Unlock()
 	return composed, nil
 }

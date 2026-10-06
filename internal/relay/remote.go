@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -59,21 +60,40 @@ func RemoteHandler(resolve func(string) (cluster.RelayTarget, bool)) http.Handle
 			http.NotFound(w, r)
 			return
 		}
-		target, ok := resolve(appName)
-		if !ok {
-			http.Error(w, "unknown relay target", http.StatusForbidden)
-			return
-		}
-		data := DefaultIcon()
-		if target.IconPath != "" {
+		var data []byte
+		if target, ok := resolve(appName); ok && target.IconPath != "" {
 			if file, err := os.ReadFile(target.IconPath); err == nil && len(file) > 0 {
 				data = file
 			}
+		}
+		if data == nil {
+			if file, err := os.ReadFile(filepath.Join(systemIconRoot, appName, "icon.png")); err == nil && len(file) > 0 {
+				data = file
+			}
+		}
+		if data == nil {
+			data = DefaultIcon()
 		}
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write(data)
 	})
 	return mux
+}
+
+// systemIconRoot is a test seam; fnOS serves builtin app icons from here.
+var systemIconRoot = "/usr/trim/www/static/app/icons"
+
+// spaRoute lists the SPA-only paths the fnOS gateway itself 404s (its own
+// html_nocache fallback covers /, /login, /signin, /system, /oauth and /biz/).
+// Everything else - /apps/*, /app/*, /cgi/*, assets - must pass through, or a
+// nested iframe app would receive the desktop shell instead.
+func spaRoute(path string) bool {
+	for _, prefix := range []string{"/appview", "/reset-password", "/debug", "/404"} {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidAppName reports whether a relay app name is safe to route.
@@ -98,7 +118,7 @@ func serveRemoteGateway(w http.ResponseWriter, r *http.Request, tailPath string)
 			pr.Out.URL.Host = "127.0.0.1:5666"
 			pr.Out.Host = "127.0.0.1:5666"
 			pr.Out.URL.Path = tailPath
-			if strings.Contains(r.Header.Get("Accept"), "text/html") {
+			if strings.Contains(r.Header.Get("Accept"), "text/html") && spaRoute(tailPath) {
 				pr.Out.URL.Path = "/"
 			}
 			pr.Out.URL.RawQuery = r.URL.RawQuery

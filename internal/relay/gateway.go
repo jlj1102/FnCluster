@@ -184,6 +184,8 @@ func shimScript(prefix string) string {
 	}
 	return fmt.Sprintf(`(function(){
   var prefix=%s;
+  window.__fnclusterRelay = true;
+  window.__fnclusterRelayPrefix = prefix;
   try{
     var d=Object.getOwnPropertyDescriptor(Document.prototype,'cookie');
     if(d&&d.get&&d.set){
