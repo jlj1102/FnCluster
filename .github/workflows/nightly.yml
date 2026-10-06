@@ -1,0 +1,59 @@
+name: Nightly
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  nightly:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # fnpack is not committed (licensing); fetch the official Windows build
+      - name: Download fnpack
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force tools | Out-Null
+          Invoke-WebRequest https://static2.fnnas.com/fnpack/fnpack-1.2.3-windows-amd64 -OutFile tools/fnpack.exe
+
+      # A unique version per build lets the fnOS app center detect an upgrade
+      - name: Stamp nightly version
+        shell: pwsh
+        run: |
+          $m = "packaging/fnos/fncluster/manifest"
+          $base = ((Select-String -Path $m -Pattern '^version\s*=').Line -split '=', 2)[1].Trim()
+          $sha = (git rev-parse --short=6 HEAD).Trim()
+          $new = "$base-nightly.$sha"
+          (Get-Content $m) -replace '^version\s*=.*$', "version               = $new" | Set-Content $m
+          "manifest version: $new"
+
+      - name: Build FPK (x86)
+        shell: powershell
+        run: ./packaging/fnos/build.ps1 -FnpackPath tools/fnpack.exe -Arch amd64
+
+      - name: Build FPK (arm)
+        shell: powershell
+        run: ./packaging/fnos/build.ps1 -FnpackPath tools/fnpack.exe -Arch arm64
+
+      - name: Publish Nightly release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly
+          prerelease: true
+          body: |
+            Automated nightly build of `fncluster.fpk` (x86) and `fncluster-arm.fpk`.
+
+            Commit: ${{ github.sha }}
+          files: |
+            packaging/fnos/fncluster.fpk
+            packaging/fnos/fncluster-arm.fpk
