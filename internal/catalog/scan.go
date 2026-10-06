@@ -40,12 +40,6 @@ func (p *PortValue) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// IconPath resolves a ui/config icon pattern (images/icon_{0}.png) to the
-// 64px file inside the app directory.
-func IconPath(base, pattern string) string {
-	return iconFile(base, pattern)
-}
-
 // pathOf returns the URL path without the trailing slash ("" for root).
 func pathOf(raw string) string {
 	parsed, err := url.Parse(raw)
