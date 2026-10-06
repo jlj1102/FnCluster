@@ -95,11 +95,14 @@ func TestGatewayCookieNamespace(t *testing.T) {
 	}
 
 	request := http.Header{}
-	request.Add("Cookie", "fncluster-192.168.1.27-fnos-token=abc; "+cookieName(38673)+"=session; other=1")
+	request.Add("Cookie", "fncluster-192.168.1.27-fnos-token=abc; "+cookieName(38673)+"=session; fnos-token=local; other=1")
 	rewriteGatewayRequestCookies(request, "fncluster-192.168.1.27-", cookieName(38673))
 	got := strings.Join(request.Values("Cookie"), " ")
-	if !strings.Contains(got, "fnos-token=abc") || strings.Contains(got, "fncluster-") || !strings.Contains(got, "other=1") {
-		t.Fatalf("request cookie rewrite = %q", got)
+	if !strings.Contains(got, "fnos-token=abc") {
+		t.Fatalf("remote cookie not forwarded: %q", got)
+	}
+	if strings.Contains(got, "fncluster-") || strings.Contains(got, "local") || strings.Contains(got, "other=1") {
+		t.Fatalf("local or session cookie leaked upstream: %q", got)
 	}
 }
 

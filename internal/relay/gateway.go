@@ -101,24 +101,30 @@ func (s *Server) proxyGateway(w http.ResponseWriter, r *http.Request, entry sess
 	proxy.ServeHTTP(w, r)
 }
 
-// rewriteGatewayRequestCookies drops the relay session cookie and strips the
-// remote namespace before the gateway ever sees the request.
+// rewriteGatewayRequestCookies forwards only the remote namespace to the
+// gateway. Cookies on this host may belong to the local desktop (the relay
+// origin shares its host), and forwarding the local fnos-token made the remote
+// gateway reject every request with errno 65534 (验签失败).
 func rewriteGatewayRequestCookies(header http.Header, prefix, sessionCookie string) {
 	cookies := headerCookies(header)
 	if len(cookies) == 0 {
 		return
 	}
-	kept := make([]*http.Cookie, 0, len(cookies))
+	header.Del("Cookie")
+	if prefix == "" {
+		return
+	}
 	for _, cookie := range cookies {
-		if cookie.Name == sessionCookie {
+		if !strings.HasPrefix(cookie.Name, prefix) {
 			continue
 		}
-		if prefix != "" && strings.HasPrefix(cookie.Name, prefix) {
-			cookie.Name = strings.TrimPrefix(cookie.Name, prefix)
+		cookie.Name = strings.TrimPrefix(cookie.Name, prefix)
+		request := &http.Request{Header: http.Header{}}
+		request.AddCookie(cookie)
+		for _, value := range request.Header.Values("Cookie") {
+			header.Add("Cookie", value)
 		}
-		kept = append(kept, cookie)
 	}
-	setHeaderCookies(header, kept)
 }
 
 // prefixResponseCookies namespaces every Set-Cookie from the remote gateway and
@@ -154,17 +160,6 @@ func prefixResponseCookies(header http.Header, prefix string) {
 func headerCookies(header http.Header) []*http.Cookie {
 	request := &http.Request{Header: header.Clone()}
 	return request.Cookies()
-}
-
-func setHeaderCookies(header http.Header, cookies []*http.Cookie) {
-	header.Del("Cookie")
-	for _, cookie := range cookies {
-		request := &http.Request{Header: http.Header{}}
-		request.AddCookie(cookie)
-		for _, value := range request.Header.Values("Cookie") {
-			header.Add("Cookie", value)
-		}
-	}
 }
 
 // injectShim puts the cookie/storage namespace shim before the SPA bundle so
