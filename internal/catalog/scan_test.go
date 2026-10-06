@@ -17,7 +17,7 @@ func TestScanLocalizesSystemPanels(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(localeRoot, "zh-CN", "os.json"), []byte(`{"app":{"setting":"系统设置","fileManager":"文件管理"}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	panels, _, err := Scan(t.TempDir(), "node-a", "1.2.0701")
+	panels, _, _, err := Scan(t.TempDir(), "node-a", "1.2.0701")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestScanMarksRelayTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	panels, targets, err := Scan(root, "node-a", "1.2.0701")
+	panels, targets, _, err := Scan(root, "node-a", "1.2.0701")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestScanMarksPortTargets(t *testing.T) {
 	writeApp("bad", "appname = bad\n",
 		`{ ".url": { "bad.Application": { "title":"Bad", "icon":"images/icon_{0}.png", "protocol":"http", "port":"99999", "url":"/" } } }`)
 
-	panels, targets, err := Scan(root, "node-a", "1.2.0701")
+	panels, targets, _, err := Scan(root, "node-a", "1.2.0701")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,6 +160,43 @@ func TestScanMarksPortTargets(t *testing.T) {
 	}
 }
 
+func TestScanStripsQuotedManifestAndCollectsIcons(t *testing.T) {
+	root := t.TempDir()
+	app := filepath.Join(root, "baidu.netdisk")
+	if err := os.MkdirAll(filepath.Join(app, "target", "ui", "images"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "appname=\"baidu.netdisk\"\nservice_port=\"17080\"\n"
+	if err := os.WriteFile(filepath.Join(app, "manifest"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	config := `{ ".url": { "baidu.netdisk": { "title":"百度网盘", "icon":"images/icon_{0}.png", "type":"iframe", "protocol":"http", "url":"/app-baidu-netdisk?ver=0.0.1" } } }`
+	if err := os.WriteFile(filepath.Join(app, "target", "ui", "config"), []byte(config), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Only the 256px file exists; the 64px candidate must fall through.
+	if err := os.WriteFile(filepath.Join(app, "target", "ui", "images", "icon_256.png"), []byte("png"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	panels, _, icons, err := Scan(root, "node-a", "1.2.0701")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, panel := range panels {
+		if panel.AppName == "baidu.netdisk" && panel.Title == "百度网盘" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("quoted appname was skipped: %+v", panels)
+	}
+	if !strings.HasSuffix(icons["baidu.netdisk"], filepath.Join("images", "icon_256.png")) {
+		t.Fatalf("icon fallback wrong: %+v", icons)
+	}
+}
+
 func TestScanFPKEntriesAndSystemPanels(t *testing.T) {
 	root := t.TempDir()
 	app := filepath.Join(root, "photo")
@@ -173,7 +210,7 @@ func TestScanFPKEntriesAndSystemPanels(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(app, "target", "ui", "config"), []byte(config), 0644); err != nil {
 		t.Fatal(err)
 	}
-	panels, _, err := Scan(root, "node-a", "1.2.0701")
+	panels, _, _, err := Scan(root, "node-a", "1.2.0701")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -189,6 +189,11 @@ func (a *Agent) LocalIcon(appName string) ([]byte, bool) {
 			return data, true
 		}
 	}
+	if path := a.IconPath(appName); path != "" {
+		if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
+			return data, true
+		}
+	}
 	data, err := os.ReadFile(filepath.Join("/usr/trim/www/static/app/icons", appName, "icon.png"))
 	if err == nil && len(data) > 0 {
 		return data, true
@@ -196,19 +201,26 @@ func (a *Agent) LocalIcon(appName string) ([]byte, bool) {
 	return nil, false
 }
 
+// IconPath returns the resolved on-disk icon for an app; used by the remote
+// /icon/ handler when the app has no relay transport (gateway-proxied UIs
+// like baidu.netdisk still ship images/icon_{0}.png).
+func (a *Agent) IconPath(appName string) string {
+	a.relayMu.RLock()
+	defer a.relayMu.RUnlock()
+	if path := a.appIcons[appName]; path != "" {
+		return path
+	}
+	return a.discovered[appName].IconPath
+}
+
 // setCatalog refreshes the scan-derived tables: relay targets plus the app
 // name / icon metadata runtime discovery needs for apps without a declared
 // transport (ui/config "${port}" placeholders).
-func (a *Agent) setCatalog(targets map[string]cluster.RelayTarget, panels []cluster.PanelEntry) {
+func (a *Agent) setCatalog(targets map[string]cluster.RelayTarget, panels []cluster.PanelEntry, icons map[string]string) {
 	known := make(map[string]bool, len(panels))
-	icons := map[string]string{}
 	for _, panel := range panels {
-		if panel.AppName == "" {
-			continue
-		}
-		known[panel.AppName] = true
-		if icon := catalog.IconPath(filepath.Join("/var/apps", panel.AppName), panel.Icon); icon != "" {
-			icons[panel.AppName] = icon
+		if panel.AppName != "" {
+			known[panel.AppName] = true
 		}
 	}
 	a.relayMu.Lock()
@@ -250,8 +262,8 @@ func (a *Agent) Run(ctx context.Context, interval time.Duration) {
 	collect := func() {
 		// The relay target table must refresh even while a desktop report owns
 		// the catalog; the scan then only supplies panels when no report exists.
-		if panels, targets, err := catalog.Scan("/var/apps", a.State.Local().ID, a.State.Local().FnOSVersion); err == nil {
-			a.setCatalog(targets, panels)
+		if panels, targets, icons, err := catalog.Scan("/var/apps", a.State.Local().ID, a.State.Local().FnOSVersion); err == nil {
+			a.setCatalog(targets, panels, icons)
 			if a.State.LocalPanelsSource() != "desktop" {
 				a.State.UpdateLocalPanels(panels, "scan")
 			} else {

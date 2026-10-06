@@ -165,7 +165,7 @@ func serve(args []string) error {
 			log.Printf("relay disabled: no LAN address found")
 		} else {
 			relayServer = &relay.Server{DataDir: *dataDir, TTL: 12 * time.Hour, Sessions: relay.NewSessions(12 * time.Hour), Ports: *relayPorts, LocalIcon: agent.LocalIcon}
-			meshRuntime.SetRelay(relay.RemoteHandler(agent.ResolveTarget))
+			meshRuntime.SetRelay(relay.RemoteHandler(agent.ResolveTarget, agent.IconPath))
 			go func() {
 				if relayErr := relayServer.Serve(ctx, *relayListen); relayErr != nil {
 					log.Printf("relay listener: %v", relayErr)

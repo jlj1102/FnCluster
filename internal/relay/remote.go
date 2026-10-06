@@ -20,8 +20,9 @@ var appNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
 // RemoteHandler serves /relay/<appName>/<path...> on the mTLS mesh listener.
 // The caller must already have verified the peer certificate; resolve only
-// returns targets that were discovered on this node.
-func RemoteHandler(resolve func(string) (cluster.RelayTarget, bool)) http.Handler {
+// returns targets that were discovered on this node, and iconPath supplies an
+// on-disk icon for apps without a relay transport.
+func RemoteHandler(resolve func(string) (cluster.RelayTarget, bool), iconPath func(string) string) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/relay/", func(w http.ResponseWriter, r *http.Request) {
 		rest := strings.TrimPrefix(r.URL.Path, "/relay/")
@@ -68,6 +69,13 @@ func RemoteHandler(resolve func(string) (cluster.RelayTarget, bool)) http.Handle
 		if target, ok := resolve(appName); ok && target.IconPath != "" {
 			if file, err := os.ReadFile(target.IconPath); err == nil && len(file) > 0 {
 				data = file
+			}
+		}
+		if data == nil && iconPath != nil {
+			if path := iconPath(appName); path != "" {
+				if file, err := os.ReadFile(path); err == nil && len(file) > 0 {
+					data = file
+				}
 			}
 		}
 		if data == nil {

@@ -138,19 +138,37 @@ func parseLoopback(entryURL string) bool {
 	return parsed.Port() != "" && cluster.IsLoopbackHost(parsed.Hostname())
 }
 
-// iconFile resolves the ui/config icon pattern (images/icon_{0}.png) to the
-// 64px file inside the app directory; the relay composites it for remote
-// entries.
+// iconFile resolves the ui/config icon pattern (images/icon_{0}.png) to a
+// file inside the app directory; 64 first, then 256 for packages that ship
+// only the larger size.
 func iconFile(base, pattern string) string {
 	if pattern == "" {
 		return ""
 	}
-	resolved := strings.ReplaceAll(pattern, "{0}", "64")
-	candidate := filepath.Join(base, "target", "ui", filepath.FromSlash(resolved))
-	if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
-		return candidate
+	candidates := []string{strings.ReplaceAll(pattern, "{0}", "64")}
+	if strings.Contains(pattern, "{0}") {
+		candidates = append(candidates, strings.ReplaceAll(pattern, "{0}", "256"))
+	}
+	for _, candidate := range candidates {
+		path := filepath.Join(base, "target", "ui", filepath.FromSlash(candidate))
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
+			return path
+		}
 	}
 	return ""
+}
+
+// cleanManifestValue trims spaces and matching quotes: some third-party
+// manifests ship appname="foo.bar", which must not miss the directory check.
+func cleanManifestValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 {
+		first, last := value[0], value[len(value)-1]
+		if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+			value = strings.TrimSpace(value[1 : len(value)-1])
+		}
+	}
+	return value
 }
 
 // localeRoot is a test seam; fnOS ships its UI translations under this tree.
@@ -186,15 +204,18 @@ func systemTitles() map[string]string {
 	return nil
 }
 
-// Scan reads FPK metadata only; it does not call private fnOS APIs or launch apps.
-// The returned map is the local relay target table (appName -> local service).
-func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, map[string]cluster.RelayTarget, error) {
+// Scan reads FPK metadata only; it does not call private fnOS APIs or launch
+// apps. It returns the local relay target table (appName -> local service)
+// plus resolved icon paths for every accepted app, including ones without a
+// declared transport (their UI may be gateway-proxied).
+func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, map[string]cluster.RelayTarget, map[string]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var panels []cluster.PanelEntry
 	targets := map[string]cluster.RelayTarget{}
+	icons := map[string]string{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -214,9 +235,9 @@ func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, map[string]cl
 			}
 			switch strings.TrimSpace(key) {
 			case "appname":
-				appName = strings.TrimSpace(value)
+				appName = cleanManifestValue(value)
 			case "service_port":
-				if number, convErr := strconv.Atoi(strings.TrimSpace(value)); convErr == nil {
+				if number, convErr := strconv.Atoi(cleanManifestValue(value)); convErr == nil {
 					servicePort = number
 				}
 			}
@@ -238,6 +259,9 @@ func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, map[string]cl
 		for id, item := range ui.URLs {
 			if item.NoDisplay || item.Title == "" {
 				continue
+			}
+			if iconPath := iconFile(base, item.Icon); iconPath != "" {
+				icons[appName] = iconPath
 			}
 			panel := cluster.PanelEntry{ID: id, NodeID: nodeID, Kind: "application", Title: item.Title, Icon: item.Icon, AppName: appName}
 			if strings.HasPrefix(item.URL, "/") && !strings.HasPrefix(item.URL, "//") {
@@ -272,5 +296,5 @@ func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, map[string]cl
 		}
 		return panels[i].ID < panels[j].ID
 	})
-	return panels, targets, nil
+	return panels, targets, icons, nil
 }

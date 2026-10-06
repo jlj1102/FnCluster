@@ -172,7 +172,7 @@ func TestRemoteIconServesSystemIcon(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "icon.png"), []byte("pngbytes"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	handler := RemoteHandler(func(string) (cluster.RelayTarget, bool) { return cluster.RelayTarget{}, false })
+	handler := RemoteHandler(func(string) (cluster.RelayTarget, bool) { return cluster.RelayTarget{}, false }, nil)
 	request := httptest.NewRequest(http.MethodGet, "/icon/trim.download-center", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -269,7 +269,7 @@ func TestProxyPortForwardsAndRewritesLocation(t *testing.T) {
 	address := strings.TrimPrefix(backend.URL, "http://")
 	handler := RemoteHandler(func(string) (cluster.RelayTarget, bool) {
 		return cluster.RelayTarget{Kind: "port", Address: address, Scheme: "http"}, true
-	})
+	}, nil)
 	request := httptest.NewRequest(http.MethodGet, "/relay/motrix/next?x=1", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -296,7 +296,7 @@ func TestProxyPortHTTPSInsecure(t *testing.T) {
 	address := strings.TrimPrefix(backend.URL, "https://")
 	handler := RemoteHandler(func(string) (cluster.RelayTarget, bool) {
 		return cluster.RelayTarget{Kind: "port", Address: address, Scheme: "https", InsecureTLS: true}, true
-	})
+	}, nil)
 	request := httptest.NewRequest(http.MethodGet, "/relay/tlsapp/", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -305,8 +305,31 @@ func TestProxyPortHTTPSInsecure(t *testing.T) {
 	}
 }
 
+func TestRemoteIconUsesIconPathHook(t *testing.T) {
+	dir := t.TempDir()
+	iconFile := filepath.Join(dir, "icon.png")
+	if err := os.WriteFile(iconFile, []byte("iconbytes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	handler := RemoteHandler(
+		func(string) (cluster.RelayTarget, bool) { return cluster.RelayTarget{}, false },
+		func(appName string) string {
+			if appName == "baidu.netdisk" {
+				return iconFile
+			}
+			return ""
+		},
+	)
+	request := httptest.NewRequest(http.MethodGet, "/icon/baidu.netdisk", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "iconbytes" {
+		t.Fatalf("icon hook = %d %q", response.Code, response.Body.String())
+	}
+}
+
 func TestRemoteHandlerRejectsUnknownTarget(t *testing.T) {
-	handler := RemoteHandler(func(string) (cluster.RelayTarget, bool) { return cluster.RelayTarget{}, false })
+	handler := RemoteHandler(func(string) (cluster.RelayTarget, bool) { return cluster.RelayTarget{}, false }, nil)
 	request := httptest.NewRequest(http.MethodGet, "/relay/tailscale/", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
