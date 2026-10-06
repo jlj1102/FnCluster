@@ -18,7 +18,7 @@ import (
 
 func TestSessionsMintLookupAndExpire(t *testing.T) {
 	sessions := NewSessions(20 * time.Millisecond)
-	token := sessions.Mint("node-a", "tailscale")
+	token := sessions.Mint("node-a", "tailscale", "")
 	entry, ok := sessions.Lookup(token)
 	if !ok || entry.NodeID != "node-a" || entry.AppName != "tailscale" {
 		t.Fatalf("minted session not found: %+v %v", entry, ok)
@@ -31,11 +31,11 @@ func TestSessionsMintLookupAndExpire(t *testing.T) {
 
 func TestSessionsReuseAndPortAssignment(t *testing.T) {
 	sessions := NewSessions(time.Hour)
-	first := sessions.Mint("node-a", "tailscale")
-	if again := sessions.Mint("node-a", "tailscale"); again != first {
+	first := sessions.Mint("node-a", "tailscale", "")
+	if again := sessions.Mint("node-a", "tailscale", ""); again != first {
 		t.Fatal("same target minted a new token")
 	}
-	second := sessions.Mint("node-a", "docker")
+	second := sessions.Mint("node-a", "docker", "")
 	origins := []int{5001, 5002}
 
 	port, ok := sessions.AssignPort(first, origins)
@@ -50,7 +50,7 @@ func TestSessionsReuseAndPortAssignment(t *testing.T) {
 		t.Fatalf("two sessions share a port: %d, %v", other, ok)
 	}
 
-	third := sessions.Mint("node-b", "photos")
+	third := sessions.Mint("node-b", "photos", "")
 	if _, ok := sessions.AssignPort(third, origins); ok {
 		t.Fatal("exhausted origins still assigned a port")
 	}
@@ -58,7 +58,7 @@ func TestSessionsReuseAndPortAssignment(t *testing.T) {
 
 func TestOriginHandlerRejectsForeignPort(t *testing.T) {
 	sessions := NewSessions(time.Hour)
-	token := sessions.Mint("node-a", "tailscale")
+	token := sessions.Mint("node-a", "tailscale", "")
 	if _, ok := sessions.AssignPort(token, []int{6001}); !ok {
 		t.Fatal("port assignment failed")
 	}
@@ -69,6 +69,48 @@ func TestOriginHandlerRejectsForeignPort(t *testing.T) {
 	server.originHandler(6002).ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("foreign port returned %d", response.Code)
+	}
+}
+
+func TestGatewayCookieNamespace(t *testing.T) {
+	if prefix := CookiePrefix("http://192.168.1.27:5666/"); prefix != "fncluster-192.168.1.27-" {
+		t.Fatalf("prefix = %q", prefix)
+	}
+	if prefix := CookiePrefix("not a url"); prefix != "" {
+		t.Fatalf("garbage prefix = %q", prefix)
+	}
+
+	header := http.Header{}
+	header.Add("Set-Cookie", "fnos-token=abc; Path=/; SameSite=Strict")
+	header.Add("Set-Cookie", "other=1; Domain=192.168.1.27; Path=/")
+	prefixResponseCookies(header, "fncluster-192.168.1.27-")
+	values := header.Values("Set-Cookie")
+	if len(values) != 2 || !strings.HasPrefix(values[0], "fncluster-192.168.1.27-fnos-token=") {
+		t.Fatalf("Set-Cookie rewrite = %v", values)
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), "domain=") {
+			t.Fatalf("domain attribute kept: %q", value)
+		}
+	}
+
+	request := http.Header{}
+	request.Add("Cookie", "fncluster-192.168.1.27-fnos-token=abc; "+cookieName(38673)+"=session; other=1")
+	rewriteGatewayRequestCookies(request, "fncluster-192.168.1.27-", cookieName(38673))
+	got := strings.Join(request.Values("Cookie"), " ")
+	if !strings.Contains(got, "fnos-token=abc") || strings.Contains(got, "fncluster-") || !strings.Contains(got, "other=1") {
+		t.Fatalf("request cookie rewrite = %q", got)
+	}
+}
+
+func TestInjectShim(t *testing.T) {
+	body := []byte("<html><head><title>x</title></head><body></body></html>")
+	out := string(injectShim(body, "fncluster-192.168.1.27-"))
+	if !strings.Contains(out, "<head><script>") || !strings.Contains(out, "fncluster-192.168.1.27-") {
+		t.Fatalf("shim not injected: %s", out)
+	}
+	if string(injectShim(body, "")) != string(body) {
+		t.Fatal("empty prefix must not change the body")
 	}
 }
 

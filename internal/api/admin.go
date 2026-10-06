@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"fncluster/internal/cluster"
+	"fncluster/internal/relay"
 )
 
 // mutationRequest guards browser write endpoints: POST plus a custom header
@@ -236,6 +238,18 @@ func (s *server) handleMeshResetIdentity(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
+// relayHostFromRequest prefers the host the browser used for the desktop so
+// the relay origin stays same-site (cookies use SameSite=Strict).
+func relayHostFromRequest(requestHost, relayBase string) string {
+	if name, _, err := net.SplitHostPort(requestHost); err == nil && name != "" {
+		return name
+	}
+	if parsed, parseErr := url.Parse(relayBase); parseErr == nil && parsed.Hostname() != "" {
+		return parsed.Hostname()
+	}
+	return ""
+}
+
 // handleRelayTokens mints browser-facing relay sessions for remote panels.
 // Targets are limited to relayable panels that a cluster member reported, and
 // the request never carries a host or port.
@@ -249,12 +263,17 @@ func (s *server) handleRelayTokens(w http.ResponseWriter, r *http.Request) {
 	if !mutationRequest(w, r, &body) {
 		return
 	}
-	if s.relay == nil || s.admin.RelayBase == "" {
+	if s.relay == nil || s.admin.RelayBase == "" || s.admin.RelayPort == "" {
 		writeError(w, http.StatusServiceUnavailable, "relay is not enabled")
 		return
 	}
 	if len(body.Targets) > 200 {
 		writeError(w, http.StatusBadRequest, "too many relay targets")
+		return
+	}
+	host := relayHostFromRequest(r.Host, s.admin.RelayBase)
+	if host == "" {
+		writeError(w, http.StatusServiceUnavailable, "relay origin host is unknown")
 		return
 	}
 	nodes := map[string]cluster.Node{}
@@ -267,21 +286,31 @@ func (s *server) handleRelayTokens(w http.ResponseWriter, r *http.Request) {
 		if !ok || !node.Online || target.AppName == "" {
 			continue
 		}
-		relayable := false
-		for _, panel := range node.Panels {
-			if panel.AppName == target.AppName && panel.Relayable {
-				relayable = true
-				break
+		prefix := ""
+		if target.AppName == relay.GatewayApp {
+			// The tunneled desktop must never collide with the local node's
+			// cookies: namespace them by the remote hostname.
+			prefix = relay.CookiePrefix(node.WebOrigin)
+			if prefix == "" {
+				continue
+			}
+		} else {
+			relayable := false
+			for _, panel := range node.Panels {
+				if panel.AppName == target.AppName && panel.Relayable {
+					relayable = true
+					break
+				}
+			}
+			if !relayable {
+				continue
 			}
 		}
-		if !relayable {
-			continue
-		}
-		token := s.relay.Sessions.Mint(target.NodeID, target.AppName)
+		token := s.relay.Sessions.Mint(target.NodeID, target.AppName, prefix)
 		results = append(results, map[string]string{
 			"nodeId":  target.NodeID,
 			"appName": target.AppName,
-			"url":     s.admin.RelayBase + "/open/" + token,
+			"url":     "http://" + net.JoinHostPort(host, s.admin.RelayPort) + "/open/" + token,
 		})
 	}
 	s.admin.Audit("relay.token", fmt.Sprintf("targets=%d minted=%d", len(body.Targets), len(results)), "ok")

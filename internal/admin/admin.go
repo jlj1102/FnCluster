@@ -36,8 +36,10 @@ type Admin struct {
 	State      *cluster.State
 
 	// RelayBase is the browser-facing relay origin (empty disables relay);
+	// RelayPort is the portal port used to build per-request relay URLs;
 	// Relayable reports whether this node can serve an app through the relay.
 	RelayBase string
+	RelayPort string
 	Relayable func(string) bool
 
 	mu sync.Mutex

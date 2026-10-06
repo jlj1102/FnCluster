@@ -154,16 +154,18 @@ func TestPanelsReportMapsLocalizedEntries(t *testing.T) {
 func TestRelayTokensOnlyForRelayablePanels(t *testing.T) {
 	dir := t.TempDir()
 	state := cluster.New(cluster.Node{ID: "local-node", Online: true})
-	state.UpsertRemote(cluster.Node{ID: "remote-node", Online: true, Panels: []cluster.PanelEntry{
+	state.UpsertRemote(cluster.Node{ID: "remote-node", Online: true, WebOrigin: "http://192.168.1.27:5666", Panels: []cluster.PanelEntry{
 		{ID: "entry:1", NodeID: "remote-node", AppName: "tailscale", Relayable: true},
 		{ID: "entry:2", NodeID: "remote-node", AppName: "other"},
 	}})
-	adminOps := &admin.Admin{DataDir: dir, Entry: filepath.Join(dir, "index.html"), RelayBase: "http://192.168.1.28:38672"}
+	state.UpsertRemote(cluster.Node{ID: "no-origin", Online: true})
+	adminOps := &admin.Admin{DataDir: dir, Entry: filepath.Join(dir, "index.html"), RelayBase: "http://192.168.1.28:38672", RelayPort: "38672"}
 	relayServer := &relay.Server{TTL: time.Hour, Sessions: relay.NewSessions(time.Hour)}
 	handler := New(state, adminOps, mesh.NewRuntime(dir, "127.0.0.1:0", state, time.Hour), relayServer)
 
-	body := `{"targets":[{"nodeId":"remote-node","appName":"tailscale"},{"nodeId":"remote-node","appName":"other"},{"nodeId":"missing","appName":"x"}]}`
+	body := `{"targets":[{"nodeId":"remote-node","appName":"tailscale"},{"nodeId":"remote-node","appName":"other"},{"nodeId":"remote-node","appName":"fncluster.gateway"},{"nodeId":"no-origin","appName":"fncluster.gateway"},{"nodeId":"missing","appName":"x"}]}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/relay/tokens", strings.NewReader(body))
+	request.Host = "nas.local:5666"
 	request.Header.Set("X-FnCluster", "1")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -174,8 +176,11 @@ func TestRelayTokensOnlyForRelayablePanels(t *testing.T) {
 	if !strings.Contains(out, `"appName":"tailscale"`) || !strings.Contains(out, "/open/") {
 		t.Fatalf("relayable target was not minted: %s", out)
 	}
-	if strings.Contains(out, `"appName":"other"`) || strings.Contains(out, "missing") {
-		t.Fatalf("non-relayable target was minted: %s", out)
+	if !strings.Contains(out, `"appName":"fncluster.gateway"`) || !strings.Contains(out, `"url":"http://nas.local:38672/open/`) {
+		t.Fatalf("gateway target was not minted for the requesting host: %s", out)
+	}
+	if strings.Contains(out, `"appName":"other"`) || strings.Contains(out, "missing") || strings.Contains(out, "no-origin") {
+		t.Fatalf("ineligible target was minted: %s", out)
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/api/v1/relay/tokens", strings.NewReader(body))

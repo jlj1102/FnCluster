@@ -34,9 +34,15 @@ func cookieName(port int) string {
 	return cookiePrefix + strconv.Itoa(port)
 }
 
+// GatewayApp is the reserved target that proxies the remote node's whole fnOS
+// gateway (desktop shell, APIs and WebSockets) so native panels open inside a
+// same-site iframe without the cross-site cookie wall.
+const GatewayApp = "fncluster.gateway"
+
 type session struct {
 	NodeID  string
 	AppName string
+	Prefix  string
 	Port    int
 	Expires time.Time
 }
@@ -59,8 +65,9 @@ func NewSessions(ttl time.Duration) *Sessions {
 }
 
 // Mint returns a token for the target, reusing an existing session for the same
-// node+app so a desktop reload never consumes another port.
-func (s *Sessions) Mint(nodeID, appName string) string {
+// node+app so a desktop reload never consumes another port. prefix is the
+// remote hostname cookie namespace used by gateway sessions.
+func (s *Sessions) Mint(nodeID, appName, prefix string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -68,6 +75,9 @@ func (s *Sessions) Mint(nodeID, appName string) string {
 	for token, entry := range s.entries {
 		if entry.NodeID == nodeID && entry.AppName == appName {
 			entry.Expires = now.Add(s.ttl)
+			if prefix != "" {
+				entry.Prefix = prefix
+			}
 			s.entries[token] = entry
 			return token
 		}
@@ -77,7 +87,7 @@ func (s *Sessions) Mint(nodeID, appName string) string {
 		panic(err) // crypto/rand failure is not recoverable
 	}
 	token := hex.EncodeToString(buf)
-	s.entries[token] = session{NodeID: nodeID, AppName: appName, Expires: now.Add(s.ttl)}
+	s.entries[token] = session{NodeID: nodeID, AppName: appName, Prefix: prefix, Expires: now.Add(s.ttl)}
 	return token
 }
 
@@ -243,6 +253,9 @@ func (s *Server) portalHandler(origins []int) http.Handler {
 			return
 		}
 		target := "http://" + net.JoinHostPort(hostOnly(r.Host), strconv.Itoa(port)) + "/open/" + token
+		if r.URL.RawQuery != "" {
+			target += "?" + r.URL.RawQuery
+		}
 		http.Redirect(w, r, target, http.StatusFound)
 	})
 }
@@ -264,7 +277,11 @@ func (s *Server) originHandler(port int) http.Handler {
 				SameSite: http.SameSiteLaxMode,
 				MaxAge:   int(s.TTL.Seconds()),
 			})
-			http.Redirect(w, r, "/", http.StatusFound)
+			landing := "/"
+			if anchor := r.URL.Query().Get("anchor"); anchor != "" {
+				landing = "/appview?anchor=" + url.QueryEscape(anchor)
+			}
+			http.Redirect(w, r, landing, http.StatusFound)
 			return
 		}
 		cookie, err := r.Cookie(cookieName(port))
@@ -278,6 +295,10 @@ func (s *Server) originHandler(port int) http.Handler {
 			return
 		}
 		s.Sessions.Touch(cookie.Value)
+		if entry.AppName == GatewayApp {
+			s.proxyGateway(w, r, entry)
+			return
+		}
 		s.proxy(w, r, entry)
 	})
 }

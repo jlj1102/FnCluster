@@ -29,6 +29,7 @@
   // core Settings / App Center panels, which must stay local-only.
   const EXCLUDED_REMOTE_APPS = ['fncluster', 'trim.setting', 'trim.app-center'];
   const EXCLUDED_REMOTE_IDS = ['fnos.settings'];
+  const GATEWAY_APP = 'fncluster.gateway';
 
   const state = {
     api: null,
@@ -537,6 +538,8 @@
     const targets = [];
     for (const node of nodes) {
       if (!node || !node.online || isLocalNode(node, hasLocalFlag)) continue;
+      // One gateway session per node serves every native panel it hosts.
+      targets.push({ nodeId: node.id, appName: GATEWAY_APP });
       for (const panel of Array.isArray(node.panels) ? node.panels : []) {
         if (panel && panel.relayable && panel.appName && !excludedRemotePanel(panel)) {
           targets.push({ nodeId: node.id, appName: panel.appName });
@@ -557,7 +560,10 @@
           const relayUrls = new Map();
           for (const item of (data && data.targets) || []) {
             if (item && item.nodeId && item.appName && item.url) {
-              relayUrls.set(`${item.nodeId}|${item.appName}`, item.url);
+              const key = item.appName === GATEWAY_APP
+                ? `gateway:${item.nodeId}`
+                : `${item.nodeId}|${item.appName}`;
+              relayUrls.set(key, item.url);
             }
           }
           state.relayUrls = relayUrls;
@@ -597,13 +603,18 @@
         const relayURL = panel.relayable && panel.appName
           ? state.relayUrls.get(`${node.id}|${panel.appName}`)
           : '';
-        let target = relayURL || directPanelURL(node, panel);
+        let target = relayURL;
+        if (!target && panel.kind === 'external') target = directPanelURL(node, panel);
+        if (!target && panel.appName) {
+          // The gateway relay tunnels the remote desktop same-site, so its
+          // cookies work inside the iframe; /appview renders this app only.
+          const gatewayBase = state.relayUrls.get(`gateway:${node.id}`);
+          if (gatewayBase) target = `${gatewayBase}?anchor=${encodeURIComponent(panel.appName)}`;
+        }
+        if (!target) target = directPanelURL(node, panel);
         if (!target && panel.appName && node.webOrigin) {
-          // Native panels have no URL of their own. A whole-page /appview load
-          // 404s at the fnOS gateway (only /, /login, ... fall back to the
-          // SPA), so open the gateway-served root with an anchor query; the
-          // remote desktop's own widget then navigates client-side to the
-          // fullscreen app window.
+          // Fallback for nodes that have not enabled the desktop integration:
+          // a gateway-served root with an anchor query.
           const origin = String(node.webOrigin).replace(/\/+$/, '');
           target = `${origin}/?fncluster_anchor=${encodeURIComponent(panel.appName)}`;
         }

@@ -158,6 +158,7 @@ func serve(args []string) error {
 		if relayErr != nil {
 			return fmt.Errorf("invalid relay-listen address: %w", relayErr)
 		}
+		adminOps.RelayPort = relayPort
 		adminOps.RelayBase = adminOps.RelayBaseURL(relayPort)
 		if adminOps.RelayBase == "" {
 			log.Printf("relay disabled: no LAN address found")
