@@ -87,6 +87,10 @@ func (a *Agent) Run(ctx context.Context, interval time.Duration) {
 			a.setRelayTargets(targets)
 			if a.State.LocalPanelsSource() != "desktop" {
 				a.State.UpdateLocalPanels(panels, "scan")
+			} else {
+				// Apps installed after the last desktop report would otherwise
+				// stay invisible for up to 30 minutes (or until a restart).
+				a.State.MergeLocalPanels(panels)
 			}
 		}
 		metrics, err := a.collector.Collect()

@@ -33,14 +33,29 @@ type PanelEntry struct {
 	Relayable bool   `json:"relayable,omitempty"`
 }
 
+// IsLoopbackHost reports whether a hostname is a loopback literal the relay
+// may dial or rewrite.
+func IsLoopbackHost(host string) bool {
+	switch strings.ToLower(host) {
+	case "127.0.0.1", "localhost", "::1":
+		return true
+	}
+	return false
+}
+
 // RelayTarget is resolved on the owning node only and never crosses the mesh:
-// a local unix socket or an app CGI binary the relay may proxy to.
+// a local unix socket, an app CGI binary, or the app's own loopback HTTP port.
 type RelayTarget struct {
-	Kind     string `json:"kind"` // "socket" or "cgi"
+	Kind     string `json:"kind"` // "socket", "cgi" or "port"
 	Socket   string `json:"socket,omitempty"`
 	CGIPath  string `json:"cgiPath,omitempty"`
-	Prefix   string `json:"prefix,omitempty"`
-	IconPath string `json:"iconPath,omitempty"`
+	// Address is the loopback dial target for Kind "port" (127.0.0.1:<port>).
+	Address string `json:"address,omitempty"`
+	Scheme  string `json:"scheme,omitempty"` // http or https for Kind "port"
+	// InsecureTLS skips verification for loopback self-signed HTTPS apps.
+	InsecureTLS bool   `json:"insecureTls,omitempty"`
+	Prefix      string `json:"prefix,omitempty"`
+	IconPath    string `json:"iconPath,omitempty"`
 }
 
 type Rates struct {
@@ -155,6 +170,42 @@ func (s *State) UpdateLocalPanels(panels []PanelEntry, source string) {
 	node.Panels = append([]PanelEntry(nil), sanitizePanels(panels)...)
 	node.PanelsSource = source
 	s.nodes[s.localID] = node
+}
+
+// MergeLocalPanels appends scanned panels the desktop report has not seen yet
+// (apps installed after the last report) without disturbing localized titles.
+// The scan-only system placeholders stay out: the report carries its own.
+func (s *State) MergeLocalPanels(extra []PanelEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	node := s.nodes[s.localID]
+	have := make(map[string]bool, len(node.Panels))
+	for _, panel := range node.Panels {
+		key := panel.AppName
+		if key == "" {
+			key = panel.ID
+		}
+		have[key] = true
+	}
+	changed := false
+	for _, panel := range sanitizePanels(extra) {
+		if strings.HasPrefix(panel.ID, "fnos.") {
+			continue
+		}
+		key := panel.AppName
+		if key == "" {
+			key = panel.ID
+		}
+		if have[key] {
+			continue
+		}
+		node.Panels = append(node.Panels, panel)
+		have[key] = true
+		changed = true
+	}
+	if changed {
+		s.nodes[s.localID] = node
+	}
 }
 
 func (s *State) LocalPanelsSource() string {

@@ -11,6 +11,7 @@ import (
 	"fncluster/internal/admin"
 	"fncluster/internal/cluster"
 	"fncluster/internal/mesh"
+	"fncluster/internal/relay"
 )
 
 func TestReadOnlyAPI(t *testing.T) {
@@ -68,5 +69,22 @@ func TestReadOnlyAPI(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusPermanentRedirect || response.Header().Get("Location") != "/app/fncluster/" {
 		t.Fatalf("app entry returned %d, location %q", response.Code, response.Header().Get("Location"))
+	}
+}
+
+func TestPanelIconFallbackIsNotCached(t *testing.T) {
+	state := cluster.New(cluster.Node{ID: "local-id", Online: true})
+	state.UpsertRemote(cluster.Node{ID: "node-b", Online: true})
+	dir := t.TempDir()
+	relayServer := &relay.Server{DataDir: dir, TTL: time.Hour, Sessions: relay.NewSessions(time.Hour)}
+	handler := New(state, &admin.Admin{DataDir: dir, Entry: filepath.Join(dir, "index.html")}, mesh.NewRuntime(dir, "127.0.0.1:0", state, time.Hour), relayServer)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/panels/icon/node-b/tailscale", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("icon fallback returned %d", response.Code)
+	}
+	if got := response.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("fallback cache-control = %q, want no-store", got)
 	}
 }

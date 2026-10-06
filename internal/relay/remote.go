@@ -2,9 +2,11 @@ package relay
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -50,6 +52,8 @@ func RemoteHandler(resolve func(string) (cluster.RelayTarget, bool)) http.Handle
 			proxySocket(w, r, target, tailPath)
 		case "cgi":
 			serveCGI(w, r, target, tailPath)
+		case "port":
+			proxyPort(w, r, target, tailPath)
 		default:
 			http.Error(w, "unsupported relay target", http.StatusBadGateway)
 		}
@@ -131,6 +135,68 @@ func serveRemoteGateway(w http.ResponseWriter, r *http.Request, tailPath string)
 		},
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+// proxyPort forwards to the app's own loopback HTTP port (motrix style). The
+// Host header and any loopback absolute redirects are normalized so the app
+// sees itself at 127.0.0.1 while the browser stays on the relay origin.
+func proxyPort(w http.ResponseWriter, r *http.Request, target cluster.RelayTarget, tailPath string) {
+	scheme := target.Scheme
+	if scheme != "https" {
+		scheme = "http"
+	}
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", target.Address)
+		},
+	}
+	if scheme == "https" {
+		// Loopback app ports use self-signed certificates by convention.
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: target.InsecureTLS} // #nosec G402 - loopback only
+	}
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.Out.URL.Scheme = scheme
+			pr.Out.URL.Host = target.Address
+			pr.Out.URL.Path = tailPath
+			pr.Out.URL.RawQuery = r.URL.RawQuery
+			pr.Out.Host = target.Address
+		},
+		Transport:     transport,
+		FlushInterval: -1,
+		ModifyResponse: func(resp *http.Response) error {
+			rewriteLoopbackLocation(resp.Header, target.Address)
+			return nil
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			http.Error(w, "relay port: "+err.Error(), http.StatusBadGateway)
+		},
+	}
+	proxy.ServeHTTP(w, r)
+}
+
+// rewriteLoopbackLocation turns absolute redirects that point at the app's own
+// loopback address into root-relative paths the relay origin can serve.
+func rewriteLoopbackLocation(header http.Header, address string) {
+	values := header.Values("Location")
+	if len(values) == 0 {
+		return
+	}
+	header.Del("Location")
+	for _, raw := range values {
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Host == "" {
+			header.Add("Location", raw)
+			continue
+		}
+		if parsed.Host == address || cluster.IsLoopbackHost(parsed.Hostname()) {
+			parsed.Scheme = ""
+			parsed.Host = ""
+			header.Add("Location", parsed.String())
+			continue
+		}
+		header.Add("Location", raw)
+	}
 }
 
 // proxySocket forwards to the app's local unix socket. The path is passed

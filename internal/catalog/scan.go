@@ -8,24 +8,87 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"fncluster/internal/cluster"
 )
 
 type uiURL struct {
-	Title         string `json:"title"`
-	Icon          string `json:"icon"`
-	URL           string `json:"url"`
-	NoDisplay     bool   `json:"noDisplay"`
-	GatewaySocket string `json:"gatewaySocket"`
+	Title         string    `json:"title"`
+	Icon          string    `json:"icon"`
+	URL           string    `json:"url"`
+	NoDisplay     bool      `json:"noDisplay"`
+	GatewaySocket string    `json:"gatewaySocket"`
+	Protocol      string    `json:"protocol"`
+	Port          portValue `json:"port"`
+}
+
+// portValue accepts a JSON string or number; fnOS ships both shapes.
+type portValue string
+
+func (p *portValue) UnmarshalJSON(data []byte) error {
+	raw := strings.Trim(strings.TrimSpace(string(data)), `"`)
+	if raw == "" || raw == "null" {
+		return nil
+	}
+	if _, err := strconv.Atoi(raw); err != nil {
+		return nil
+	}
+	*p = portValue(raw)
+	return nil
+}
+
+// pathOf returns the URL path without the trailing slash ("" for root).
+func pathOf(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	cleaned := strings.TrimSuffix(parsed.Path, "/")
+	if cleaned == "/" {
+		return ""
+	}
+	return cleaned
+}
+
+// portTarget builds a loopback TCP relay target from the entry's explicit
+// port, a loopback absolute URL, or the manifest service_port fallback.
+func portTarget(item uiURL, entryURL string, servicePort int, iconPath string) (cluster.RelayTarget, bool) {
+	port := strings.TrimSpace(string(item.Port))
+	scheme := strings.ToLower(strings.TrimSpace(item.Protocol))
+	if port == "" {
+		if parsed, err := url.Parse(entryURL); err == nil && cluster.IsLoopbackHost(parsed.Hostname()) {
+			port = parsed.Port()
+			if scheme == "" {
+				scheme = strings.ToLower(parsed.Scheme)
+			}
+		}
+	}
+	if port == "" && servicePort > 0 && pathOf(entryURL) == "" {
+		port = strconv.Itoa(servicePort)
+	}
+	if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
+		return cluster.RelayTarget{}, false
+	}
+	if scheme != "https" {
+		scheme = "http"
+	}
+	return cluster.RelayTarget{
+		Kind:        "port",
+		Address:     "127.0.0.1:" + port,
+		Scheme:      scheme,
+		InsecureTLS: scheme == "https",
+		Prefix:      pathOf(entryURL),
+		IconPath:    iconPath,
+	}, true
 }
 
 // relayTargetFor recognizes the two local service shapes the cluster relay can
 // reach without the fnOS gateway: a unix socket (`gatewaySocket`) or an app CGI
 // binary (`/cgi/ThirdParty/<app>/index.cgi` style). The path is resolved
 // locally and never leaves the node.
-func relayTargetFor(base, entryURL string, item uiURL) (cluster.RelayTarget, bool) {
+func relayTargetFor(base, entryURL string, item uiURL, servicePort int) (cluster.RelayTarget, bool) {
 	iconPath := iconFile(base, item.Icon)
 	if item.GatewaySocket != "" {
 		return cluster.RelayTarget{
@@ -35,15 +98,37 @@ func relayTargetFor(base, entryURL string, item uiURL) (cluster.RelayTarget, boo
 			IconPath: iconPath,
 		}, true
 	}
+	// Apps with their own HTTP port (motrix style: protocol+port+relative url)
+	// and loopback absolute URLs skip the gateway entirely.
+	if strings.TrimSpace(string(item.Port)) != "" || parseLoopback(entryURL) {
+		if target, ok := portTarget(item, entryURL, servicePort, iconPath); ok {
+			return target, true
+		}
+	}
 	parsed, err := url.Parse(entryURL)
-	if err != nil || !strings.HasSuffix(parsed.Path, ".cgi") {
+	if err != nil {
 		return cluster.RelayTarget{}, false
 	}
-	cgiPath := filepath.Join(base, "target", "ui", filepath.Base(parsed.Path))
-	if info, statErr := os.Stat(cgiPath); statErr != nil || !info.Mode().IsRegular() {
-		return cluster.RelayTarget{}, false
+	if strings.HasSuffix(parsed.Path, ".cgi") {
+		cgiPath := filepath.Join(base, "target", "ui", filepath.Base(parsed.Path))
+		if info, statErr := os.Stat(cgiPath); statErr == nil && info.Mode().IsRegular() {
+			return cluster.RelayTarget{Kind: "cgi", CGIPath: cgiPath, Prefix: path.Dir(parsed.Path), IconPath: iconPath}, true
+		}
 	}
-	return cluster.RelayTarget{Kind: "cgi", CGIPath: cgiPath, Prefix: path.Dir(parsed.Path), IconPath: iconPath}, true
+	// Manifest service_port fallback for apps that only declare the port there.
+	if target, ok := portTarget(item, entryURL, servicePort, iconPath); ok {
+		return target, true
+	}
+	return cluster.RelayTarget{}, false
+}
+
+// parseLoopback reports whether the entry URL is an absolute loopback URL.
+func parseLoopback(entryURL string) bool {
+	parsed, err := url.Parse(entryURL)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	return parsed.Port() != "" && cluster.IsLoopbackHost(parsed.Hostname())
 }
 
 // iconFile resolves the ui/config icon pattern (images/icon_{0}.png) to the
@@ -113,12 +198,20 @@ func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, map[string]cl
 			continue
 		}
 		appName := ""
+		servicePort := 0
 		scanner := bufio.NewScanner(manifest)
 		for scanner.Scan() {
 			key, value, ok := strings.Cut(scanner.Text(), "=")
-			if ok && strings.TrimSpace(key) == "appname" {
+			if !ok {
+				continue
+			}
+			switch strings.TrimSpace(key) {
+			case "appname":
 				appName = strings.TrimSpace(value)
-				break
+			case "service_port":
+				if number, convErr := strconv.Atoi(strings.TrimSpace(value)); convErr == nil {
+					servicePort = number
+				}
 			}
 		}
 		manifest.Close()
@@ -145,7 +238,7 @@ func Scan(root, nodeID, fnOSVersion string) ([]cluster.PanelEntry, map[string]cl
 			} else if strings.HasPrefix(item.URL, "https://") {
 				panel.ExternalURL = item.URL
 			}
-			if target, ok := relayTargetFor(base, item.URL, item); ok {
+			if target, ok := relayTargetFor(base, item.URL, item, servicePort); ok {
 				panel.Relayable = true
 				targets[appName] = target
 			}

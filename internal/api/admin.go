@@ -125,7 +125,9 @@ func (s *server) handlePanelsReport(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case entry.NativeApp || strings.HasPrefix(entry.AppName, "trim"):
 			panel.Kind = "system"
-		case strings.HasPrefix(entry.FullURL, "https://"):
+		case strings.HasPrefix(entry.FullURL, "https://") || strings.HasPrefix(entry.FullURL, "http://"):
+			// Absolute URLs (external apps and own-port apps like motrix)
+			// open directly when the browser can reach the node.
 			panel.Kind = "external"
 			panel.ExternalURL = entry.FullURL
 		default:

@@ -25,6 +25,7 @@
   const ENTRY_LIST_REQ = 'appcgi.sac.entry.v1.getEntryList';
   const REMOTE_ENTRY_LIMIT = 50; // per node
   const REMOTE_ENTRY_ICON = '/app-center-static/icon/fncluster/icon.png';
+  const DESKTOP_ENTRY_ICON = '/assets/desktop-Cid_qXcw.png';
   // Remote entries never expose these: FnCluster itself (recursive) and the
   // core Settings / App Center panels, which must stay local-only.
   const EXCLUDED_REMOTE_APPS = ['fncluster', 'trim.setting', 'trim.app-center'];
@@ -45,6 +46,7 @@
     relayFetchedAt: 0,
     relayPromise: null,
     mode: 'local',
+    entrySignature: '',
     timer: null,
     panelsTimer: null,
     button: null,
@@ -439,6 +441,39 @@
     ensureMenu(view);
     syncMenuState(view);
     ensurePanel(view);
+    refreshOnNewPanels();
+  }
+
+  // New remote panels (apps installed while the cluster runs) must reach the
+  // launchpad without a page reload: watch the panel set and ask the desktop
+  // to re-run getEntryList, which re-appends our entries.
+  function remotePanelSignature() {
+    const nodes = state.nodes;
+    const hasLocalFlag = nodes.some(node => node && node.local === true);
+    const parts = [];
+    for (const node of nodes) {
+      if (!node || !node.online || isLocalNode(node, hasLocalFlag)) continue;
+      for (const panel of Array.isArray(node.panels) ? node.panels : []) {
+        if (!panel || !panel.id || String(panel.id).startsWith('fncluster:')) continue;
+        if (excludedRemotePanel(panel)) continue;
+        parts.push(`${node.id}.${panel.id}`);
+      }
+    }
+    return parts.sort().join(',');
+  }
+
+  function refreshOnNewPanels() {
+    if (!state.mainSocket) return;
+    const signature = remotePanelSignature();
+    if (!signature) return;
+    if (!state.entrySignature) {
+      state.entrySignature = signature;
+      return;
+    }
+    if (signature === state.entrySignature) return;
+    state.entrySignature = signature;
+    console.log('[FnCluster] remote panel set changed; requesting a desktop entry refresh');
+    state.mainSocket.emit('domainEvent', { domainEvent: { event: 'user-desktop-entry-change', from: 'trim-sac' } });
   }
 
   // The desktop's own entry list is the complete, localized catalog (system
@@ -524,6 +559,14 @@
   const excludedRemotePanel = panel => !!panel && (
     EXCLUDED_REMOTE_APPS.includes(panel.appName) || EXCLUDED_REMOTE_IDS.includes(panel.id)
   );
+  const desktopLabel = () => {
+    try {
+      return String(document.documentElement.lang || '').toLowerCase().startsWith('en') ? 'Remote Desktop' : '远端桌面';
+    } catch (_) {
+      return '远端桌面';
+    }
+  };
+
   const remoteIconURL = (node, panel) => panel.appName
     ? `/app/fncluster/api/v1/panels/icon/${encodeURIComponent(node.id)}/${encodeURIComponent(panel.appName)}`
     : REMOTE_ENTRY_ICON;
@@ -621,8 +664,31 @@
       if (!node || !node.online) continue;
       if (isLocalNode(node, hasLocalFlag)) continue;
       const panels = Array.isArray(node.panels) ? node.panels : [];
-      if (!panels.length) continue;
       const label = nodeLabel(node);
+      // One whole-desktop entry per node: the remote desktop covers the
+      // system panels (Settings / App Center) that stay out of injection.
+      const gatewayBase = state.relayUrls.get(`gateway:${node.id}`);
+      if (gatewayBase) {
+        entries.push({
+          entryKey: `fncluster:desktop.${node.id}`,
+          source: 'fncluster',
+          sourceName: 'FnCluster',
+          appName: `fncluster.remote.desktop.${node.id}`,
+          appID: `fncluster.remote.desktop.${node.id}`,
+          entryName: `fncluster.remote.desktop.${node.id}`,
+          title: `${desktopLabel()} · ${label}`,
+          desc: `FnCluster remote desktop on ${label}`,
+          icon: DESKTOP_ENTRY_ICON,
+          type: 'iframe',
+          uri: entryURI(gatewayBase),
+          fullUrl: gatewayBase,
+          microApp: false,
+          nativeApp: false,
+          isDisplay: true,
+          status: 'available',
+        });
+      }
+      if (!panels.length) continue;
       let count = 0;
       for (const panel of panels) {
         if (count >= REMOTE_ENTRY_LIMIT) break;

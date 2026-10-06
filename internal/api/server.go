@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"embed"
 	"encoding/json"
 	"io/fs"
@@ -237,11 +238,18 @@ func (s *server) handlePanelIcon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data, err := s.relay.Icon(nodeID, appName)
-	if err != nil || len(data) == 0 {
+	fallback := err != nil || len(data) == 0 || bytes.Equal(data, relay.DefaultIcon())
+	if fallback {
 		data = relay.DefaultIcon()
 	}
 	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	if fallback {
+		// Never let the browser pin the fallback logo for an hour: the
+		// server-side negative cache re-resolves within minutes.
+		w.Header().Set("Cache-Control", "no-store")
+	} else {
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+	}
 	_, _ = w.Write(data)
 }
 

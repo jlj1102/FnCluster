@@ -3,6 +3,7 @@ package relay
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -250,6 +251,57 @@ func TestStripRelayCookieKeepsAppCookies(t *testing.T) {
 	cookies := request.Cookies()
 	if len(cookies) != 1 || cookies[0].Name != "ts-session" {
 		t.Fatalf("unexpected cookies: %+v", cookies)
+	}
+}
+
+func TestProxyPortForwardsAndRewritesLocation(t *testing.T) {
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/next":
+			_, _ = fmt.Fprintf(w, "host=%s path=%s query=%s", r.Host, r.URL.Path, r.URL.RawQuery)
+		case "/redir":
+			http.Redirect(w, r, "http://"+r.Host+"/next", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer backend.Close()
+	address := strings.TrimPrefix(backend.URL, "http://")
+	handler := RemoteHandler(func(string) (cluster.RelayTarget, bool) {
+		return cluster.RelayTarget{Kind: "port", Address: address, Scheme: "http"}, true
+	})
+	request := httptest.NewRequest(http.MethodGet, "/relay/motrix/next?x=1", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("port proxy returned %d: %q", response.Code, response.Body.String())
+	}
+	want := "host=" + address + " path=/next query=x=1"
+	if response.Body.String() != want {
+		t.Fatalf("port proxy body = %q, want %q", response.Body.String(), want)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/relay/motrix/redir", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusFound || response.Header().Get("Location") != "/next" {
+		t.Fatalf("loopback redirect not rewritten: %d %q", response.Code, response.Header().Get("Location"))
+	}
+}
+
+func TestProxyPortHTTPSInsecure(t *testing.T) {
+	backend := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("tls-ok"))
+	}))
+	defer backend.Close()
+	address := strings.TrimPrefix(backend.URL, "https://")
+	handler := RemoteHandler(func(string) (cluster.RelayTarget, bool) {
+		return cluster.RelayTarget{Kind: "port", Address: address, Scheme: "https", InsecureTLS: true}, true
+	})
+	request := httptest.NewRequest(http.MethodGet, "/relay/tlsapp/", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != "tls-ok" {
+		t.Fatalf("https port proxy = %d %q", response.Code, response.Body.String())
 	}
 }
 

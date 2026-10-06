@@ -60,6 +60,29 @@ func TestSyntheticPanelsNeverEnterCatalog(t *testing.T) {
 	}
 }
 
+func TestMergeLocalPanelsAppendsNewApps(t *testing.T) {
+	s := New(Node{ID: "node-a", Online: true})
+	s.UpdateLocalPanels([]PanelEntry{
+		{ID: "trim.setting", NodeID: "node-a", Title: "系统设置", AppName: "trim.setting"},
+	}, "desktop")
+	s.MergeLocalPanels([]PanelEntry{
+		{ID: "fnos.settings", NodeID: "node-a", Title: "Settings", AppName: "trim.setting"},
+		{ID: "fnos.files", NodeID: "node-a", Title: "Files", AppName: "trim.file-manager"},
+		{ID: "motrix.Application", NodeID: "node-a", Title: "Motrix", AppName: "motrix"},
+	})
+	node := s.Local()
+	if len(node.Panels) != 2 || node.Panels[1].AppName != "motrix" {
+		t.Fatalf("merge result wrong: %+v", node.Panels)
+	}
+	if got := s.LocalPanelsSource(); got != "desktop" {
+		t.Fatalf("merge changed the source: %q", got)
+	}
+	s.MergeLocalPanels([]PanelEntry{{ID: "motrix.Application", NodeID: "node-a", Title: "Motrix", AppName: "motrix"}})
+	if len(s.Local().Panels) != 2 {
+		t.Fatalf("merge duplicated a panel: %+v", s.Local().Panels)
+	}
+}
+
 func TestReconcileDropsNonMembers(t *testing.T) {
 	s := New(Node{ID: "node-a", Online: true})
 	s.UpsertRemote(Node{ID: "node-b", Online: true})
