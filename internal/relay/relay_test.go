@@ -58,6 +58,24 @@ func TestSessionsReuseAndPortAssignment(t *testing.T) {
 	}
 }
 
+func TestOriginLandingRedirectsToDesktopRoot(t *testing.T) {
+	sessions := NewSessions(time.Hour)
+	token := sessions.Mint("node-a", GatewayApp, "")
+	if _, ok := sessions.AssignPort(token, []int{6001}); !ok {
+		t.Fatal("port assignment failed")
+	}
+	server := &Server{TTL: time.Hour, Sessions: sessions}
+	request := httptest.NewRequest(http.MethodGet, "/open/"+token+"?anchor=trim.download-center", nil)
+	response := httptest.NewRecorder()
+	server.originHandler(6001).ServeHTTP(response, request)
+	if response.Code != http.StatusFound {
+		t.Fatalf("landing status = %d", response.Code)
+	}
+	if got := response.Header().Get("Location"); got != "/?fncluster_relay_anchor=trim.download-center" {
+		t.Fatalf("landing = %q", got)
+	}
+}
+
 func TestOriginHandlerRejectsForeignPort(t *testing.T) {
 	sessions := NewSessions(time.Hour)
 	token := sessions.Mint("node-a", "tailscale", "")
@@ -146,6 +164,9 @@ func TestInjectShim(t *testing.T) {
 	out := string(injectShim(body, "fncluster-192.168.1.27-"))
 	if !strings.Contains(out, "<head><script>") || !strings.Contains(out, "fncluster-192.168.1.27-") {
 		t.Fatalf("shim not injected: %s", out)
+	}
+	if !strings.Contains(out, "fncluster_relay_anchor") || !strings.Contains(out, "mod.wa") {
+		t.Fatalf("anchor bootstrap missing: %s", out)
 	}
 	if string(injectShim(body, "")) != string(body) {
 		t.Fatal("empty prefix must not change the body")

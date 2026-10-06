@@ -20,7 +20,11 @@ import (
 var badgePNG []byte
 
 const (
+	// iconSize is the minimum composite output and the badge reference size.
+	// Builtin fnOS icons are 224px; keeping the source resolution avoids the
+	// browser upscale blur that made remote entries look soft.
 	iconSize         = 64
+	iconMaxSize      = 256
 	badgeSize        = 22
 	iconCacheTime    = 24 * time.Hour
 	iconFallbackTime = 10 * time.Minute
@@ -123,16 +127,28 @@ func compositeIcon(base []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	target := scaleNearest(source, iconSize)
+	bounds := source.Bounds()
+	size := bounds.Dx()
+	if bounds.Dy() > size {
+		size = bounds.Dy()
+	}
+	if size < iconSize {
+		size = iconSize
+	}
+	if size > iconMaxSize {
+		size = iconMaxSize
+	}
+	target := scaleNearest(source, size)
 	mark, err := badge()
 	if err != nil {
 		return nil, err
 	}
-	scaled := scaleNearest(mark, badgeSize)
-	offset := iconSize - badgeSize - 2
+	markSize := size * badgeSize / iconSize
+	scaled := scaleNearest(mark, markSize)
+	offset := size - markSize - 2
 	white := image.NewUniform(color.RGBA{R: 255, G: 255, B: 255, A: 255})
-	draw.Draw(target, image.Rect(offset-2, offset-2, offset+badgeSize+2, offset+badgeSize+2), white, image.Point{}, draw.Src)
-	draw.Draw(target, image.Rect(offset, offset, offset+badgeSize, offset+badgeSize), scaled, image.Point{}, draw.Src)
+	draw.Draw(target, image.Rect(offset-2, offset-2, offset+markSize+2, offset+markSize+2), white, image.Point{}, draw.Src)
+	draw.Draw(target, image.Rect(offset, offset, offset+markSize, offset+markSize), scaled, image.Point{}, draw.Src)
 	var buffer bytes.Buffer
 	if err := png.Encode(&buffer, target); err != nil {
 		return nil, err

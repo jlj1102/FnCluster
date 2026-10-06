@@ -219,5 +219,44 @@ func shimScript(prefix string) string {
       for(var j=0;j<keys.length;j++) this.removeItem(keys[j]);
     };
   }catch(e){}
+  // Remote app deep link: the desktop root mounts first because only its
+  // resource polling initializes the timer socket that iframe micro-apps
+  // query through. Once mod.wa.getSocket() exists, switch to the app.
+  try{
+    if(location.pathname.indexOf('/apps/')!==0){
+      var anchor=null,pending=null,params=new URLSearchParams(location.search);
+      try{ pending=sessionStorage.getItem('fncluster.relay.anchor'); }catch(e){}
+      if(params.get('fncluster_relay_anchor')){
+        anchor=params.get('fncluster_relay_anchor');
+        params.delete('fncluster_relay_anchor');
+        var rest=params.toString();
+        history.replaceState(history.state,'',location.pathname+(rest?'?'+rest:'')+location.hash);
+      } else if(location.pathname==='/appview'){
+        anchor=params.get('anchor');
+      } else if(pending){
+        anchor=pending;
+      }
+      if(anchor){
+        try{ sessionStorage.setItem('fncluster.relay.anchor',anchor); }catch(e){}
+        if(location.pathname==='/appview'){
+          location.replace('/?fncluster_relay_anchor='+encodeURIComponent(anchor));
+        } else {
+          var attempts=0;
+          var poll=setInterval(function(){
+            if(++attempts>240){ clearInterval(poll); return; }
+            var script=document.querySelector('script[type="module"][src*="/assets/index-"]');
+            import(script?script.src:'/assets/index-DhUqaTaA.js').then(function(mod){
+              var sock=mod&&mod.wa&&mod.wa.getSocket?mod.wa.getSocket():null;
+              if(!sock) return;
+              clearInterval(poll);
+              try{ sessionStorage.removeItem('fncluster.relay.anchor'); }catch(e){}
+              history.pushState(history.state,'','/appview?anchor='+encodeURIComponent(anchor));
+              dispatchEvent(new PopStateEvent('popstate'));
+            },function(){});
+          },500);
+        }
+      }
+    }
+  }catch(e){}
 })();`, quoted)
 }

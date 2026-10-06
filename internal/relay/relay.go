@@ -280,9 +280,13 @@ func (s *Server) originHandler(port int) http.Handler {
 				SameSite: http.SameSiteLaxMode,
 				MaxAge:   int(s.TTL.Seconds()),
 			})
+			// The desktop root must mount first: its resource polling
+			// initializes the timer socket that iframe micro-apps query
+			// through. /appview alone leaves that socket null. The shim
+			// opens the app once the root is ready.
 			landing := "/"
 			if anchor := r.URL.Query().Get("anchor"); anchor != "" {
-				landing = "/appview?anchor=" + url.QueryEscape(anchor)
+				landing = "/?fncluster_relay_anchor=" + url.QueryEscape(anchor)
 			}
 			http.Redirect(w, r, landing, http.StatusFound)
 			return
