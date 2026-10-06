@@ -599,10 +599,13 @@
           : '';
         let target = relayURL || directPanelURL(node, panel);
         if (!target && panel.appName && node.webOrigin) {
-          // Native panels have no URL of their own: open the remote node's
-          // /appview deep link, which renders exactly that app window.
+          // Native panels have no URL of their own. A whole-page /appview load
+          // 404s at the fnOS gateway (only /, /login, ... fall back to the
+          // SPA), so open the gateway-served root with an anchor query; the
+          // remote desktop's own widget then navigates client-side to the
+          // fullscreen app window.
           const origin = String(node.webOrigin).replace(/\/+$/, '');
-          target = `${origin}/appview?anchor=${encodeURIComponent(panel.appName)}`;
+          target = `${origin}/?fncluster_anchor=${encodeURIComponent(panel.appName)}`;
         }
         if (!target) {
           target = `/app/fncluster/?node=${encodeURIComponent(node.id)}&panel=${encodeURIComponent(panel.id)}`;
@@ -690,6 +693,61 @@
       state.mainSocket.emit('domainEvent', { domainEvent: { event: 'user-desktop-entry-change', from: 'trim-sac' } });
       console.log('[FnCluster] requested a desktop entry refresh for remote apps');
     });
+  }
+
+  // Native remote panels arrive here as /?fncluster_anchor=<appName> on the
+  // remote desktop. A whole-page /appview load 404s at the fnOS gateway, but
+  // client-side router navigation works, so push the appview route and fall
+  // back to the desktop's own open command if the router ignores it.
+  function waitForDesktopReady() {
+    return new Promise(resolve => {
+      const deadline = Date.now() + 10000;
+      const check = () => {
+        if (widgetRoot() || Date.now() > deadline) {
+          resolve();
+          return;
+        }
+        setTimeout(check, 500);
+      };
+      check();
+    });
+  }
+
+  async function handleAnchor(mod) {
+    let anchor = '';
+    try {
+      anchor = new URLSearchParams(window.location.search).get('fncluster_anchor') || '';
+    } catch (_) {
+      return;
+    }
+    if (!anchor) return;
+    if (excludedRemotePanel({ appName: anchor.split('/')[0] })) return;
+    try {
+      if (sessionStorage.getItem('fncluster.anchor.handled') === anchor) return;
+      sessionStorage.setItem('fncluster.anchor.handled', anchor);
+    } catch (_) { /* private mode: still handle once per load */ }
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('fncluster_anchor');
+      window.history.replaceState(window.history.state, '', url.toString());
+    } catch (_) { /* ignore */ }
+
+    await waitForDesktopReady();
+    const path = `/appview?anchor=${encodeURIComponent(anchor)}`;
+    try {
+      window.history.pushState(window.history.state, '', path);
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    } catch (_) { /* fall through to the command bus */ }
+    setTimeout(() => {
+      if (window.location.pathname === '/appview') return;
+      if (mod && typeof mod.ms === 'function') {
+        try {
+          mod.ms(anchor);
+        } catch (error) {
+          console.warn('[FnCluster] anchor open failed', error);
+        }
+      }
+    }, 1500);
   }
 
   // --- data polling ---
@@ -784,6 +842,7 @@
       },
       refresh: () => poll(),
     };
+    handleAnchor(mod);
   }
 
   async function setup() {
